@@ -54,22 +54,39 @@ def probe(
     model = Model(args)
 
     quantization = config.get("quantization")
-    if quantization is not None:
-        def class_predicate(p, m):
-            if p in quantization:
-                return quantization[p]
-            return hasattr(m, "to_quantized")
+    default_group_size = (quantization or {}).get("group_size", 64)
 
+    def class_predicate(p, m):
+        # Some architectures (e.g. AI21 Jamba's Mamba/SSM projections) have
+        # weight dims not divisible by the group size -- nn.quantize hard
+        # errors on those rather than skipping them. Quantizing everything
+        # blindly isn't even the right behavior anyway: a real conversion
+        # would leave such a layer unquantized too, so skipping it here is
+        # both a crash fix and a more accurate match to reality.
+        if not hasattr(m, "to_quantized"):
+            return False
+        override = quantization.get(p) if quantization else None
+        if override is False:
+            return False
+        group_size = default_group_size
+        if isinstance(override, dict):
+            group_size = override.get("group_size", default_group_size)
+        weight = getattr(m, "weight", None)
+        if weight is not None and weight.shape[-1] % group_size != 0:
+            return False
+        return override if override is not None else True
+
+    if quantization is not None:
         nn.quantize(
             model,
-            group_size=quantization.get("group_size", 64),
+            group_size=default_group_size,
             bits=quantization.get("bits", 4),
             mode=quantization.get("mode", "affine"),
             class_predicate=class_predicate,
         )
         quant_desc = f"{quantization.get('bits', 4)}-bit (repo's own scheme)"
     else:
-        nn.quantize(model, group_size=64, bits=4)
+        nn.quantize(model, group_size=64, bits=4, class_predicate=class_predicate)
         quant_desc = "4-bit (assumed; no quantization info in config)"
 
     mx.eval(model.parameters())
