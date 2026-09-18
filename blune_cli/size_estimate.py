@@ -417,6 +417,127 @@ def _nemotron_h_estimate(config: dict) -> Optional[dict]:
     }
 
 
+def _gemma4_estimate(config: dict) -> Optional[dict]:
+    """Dedicated estimator for Gemma4's real per-layer structure, matching
+    mlx_lm.models.gemma4_text.py exactly -- read directly because this
+    architecture diverges from the generic mixer+MLP-per-layer formula in
+    ways that generic detection would either miss or actively mis-price:
+
+    1. When `enable_moe_block` is set, EVERY layer runs the dense MLP
+       AND the MoE experts IN PARALLEL and sums them (`h = h1 + h2` in
+       DecoderLayer.__call__) -- it's not an interleaved dense/MoE split
+       like first_k_dense_replace-style architectures. The generic
+       moe_layer_mask path (used via _analyze/ArchProfile everywhere
+       else) treats a layer as EITHER dense XOR MoE, which for this
+       gemma-4-26b-a4b-it-4bit-style config meant the dense MLP's
+       3*hidden*intermediate_size was completely, silently omitted from
+       every single layer.
+    2. Full-attention and sliding-attention layers use DIFFERENT
+       head_dim/kv_heads, not one config-wide value: full-attention
+       layers use `global_head_dim` and, when `attention_k_eq_v` is set,
+       `num_global_key_value_heads` with NO separate v_proj at all
+       (values = keys, verified in Attention.__call__/__init__) --
+       sliding layers use the plain `head_dim`/`num_key_value_heads`
+       with a normal separate v_proj. Pricing every layer with one
+       head_dim/kv_heads undercounted the (typically larger-head_dim)
+       full-attention layers and overcounted their now-nonexistent
+       v_proj.
+    3. The last `num_kv_shared_layers` layers of each attention type
+       have no k_proj/v_proj (and no own KV-cache slot at all, per
+       Gemma4TextModel.make_cache's `first_kv_shared` loop bound) --
+       they reuse an earlier same-type layer's just-computed K/V.
+    Per-layer-input gating (2B/4B variants, `hidden_size_per_layer_input`)
+    is included too since it's cheap to support once this dedicated path
+    exists, though no cached config currently exercises it."""
+    c = config.get("text_config", config)
+    if (c.get("model_type") or config.get("model_type")) not in ("gemma4", "gemma4_text"):
+        return None
+    hidden = c.get("hidden_size")
+    layers = c.get("num_hidden_layers")
+    if not hidden or not layers:
+        return None
+
+    vocab = c.get("vocab_size") or config.get("vocab_size") or 0
+    heads = c.get("num_attention_heads")
+    head_dim = c.get("head_dim")
+    global_head_dim = c.get("global_head_dim") or head_dim
+    kv_heads = c.get("num_key_value_heads")
+    global_kv_heads = c.get("num_global_key_value_heads") or kv_heads
+    k_eq_v = bool(c.get("attention_k_eq_v"))
+    n_kv_shared = c.get("num_kv_shared_layers") or 0
+
+    layer_types = c.get("layer_types")
+    if not isinstance(layer_types, list) or len(layer_types) != layers:
+        sliding_pattern = c.get("sliding_window_pattern")
+        if sliding_pattern:
+            pattern = ["sliding_attention"] * (sliding_pattern - 1) + ["full_attention"]
+            layer_types = (pattern * (layers // len(pattern) + 1))[:layers]
+        else:
+            layer_types = ["full_attention"] * layers
+
+    n_experts = c.get("num_experts") or 0
+    experts_per_tok = c.get("top_k_experts") or 1
+    moe_inter = c.get("moe_intermediate_size") or 4 * hidden
+    enable_moe = bool(c.get("enable_moe_block")) and n_experts > 0
+    dense_inter = c.get("intermediate_size") or 4 * hidden
+
+    per_layer_dim = c.get("hidden_size_per_layer_input") or 0
+    per_layer_params = 2 * hidden * per_layer_dim if per_layer_dim else 0.0  # gate + projection
+
+    first_shared_idx = layers - n_kv_shared  # layers before this own their K/V; see docstring
+
+    total_params = active_params = 0.0
+    n_full_attn_layers = n_sliding_attn_layers = 0
+    kv_full_elems = kv_sliding_elems = 0.0
+
+    for i, lt in enumerate(layer_types):
+        is_full = lt == "full_attention"
+        this_head_dim = global_head_dim if is_full else head_dim
+        this_kv_heads = (global_kv_heads if k_eq_v else kv_heads) if is_full else kv_heads
+        has_separate_v = not (is_full and k_eq_v)
+        owns_kv = i < first_shared_idx
+
+        q_proj = hidden * (heads * this_head_dim)
+        o_proj = hidden * (heads * this_head_dim)
+        attn = q_proj + o_proj
+        if owns_kv:
+            attn += hidden * (this_kv_heads * this_head_dim)  # k_proj
+            if has_separate_v:
+                attn += hidden * (this_kv_heads * this_head_dim)  # v_proj
+            kv_elems = (2 if has_separate_v else 1) * this_kv_heads * this_head_dim
+            if is_full:
+                kv_full_elems = kv_elems
+                n_full_attn_layers += 1
+            else:
+                kv_sliding_elems = kv_elems
+                n_sliding_attn_layers += 1
+        # shared-KV layers (owns_kv=False) contribute no KV-cache reads at
+        # all -- they have no cache slot of their own (see docstring).
+
+        mlp_total = mlp_active = 3 * hidden * dense_inter  # dense MLP always runs
+        if enable_moe:
+            router = hidden * n_experts
+            expert_unit = 3 * hidden * moe_inter
+            mlp_total += router + n_experts * expert_unit
+            mlp_active += router + experts_per_tok * expert_unit
+
+        total_params += attn + mlp_total + per_layer_params
+        active_params += attn + mlp_active + per_layer_params
+
+    total_params += 2 * vocab * hidden
+    active_params += vocab * hidden
+
+    return {
+        "total_params": total_params,
+        "active_params": active_params,
+        "kv_full_elems_per_token": kv_full_elems,
+        "kv_sliding_elems_per_token": kv_sliding_elems,
+        "n_full_attn_layers": n_full_attn_layers,
+        "n_sliding_attn_layers": n_sliding_attn_layers,
+        "sliding_window": c.get("sliding_window"),
+    }
+
+
 def _dsa_indexer_params(c: dict, hidden: int) -> Optional[float]:
     """Exact param count for GLM's Dynamic Sparse Attention indexer
     (glm_moe_dsa), matching mlx_lm.models.deepseek_v32.Indexer's real
@@ -653,6 +774,9 @@ def estimate_total_params(config: dict) -> Optional[int]:
     nemotron = _nemotron_h_estimate(config)
     if nemotron is not None:
         return int(nemotron["total_params"])
+    gemma4 = _gemma4_estimate(config)
+    if gemma4 is not None:
+        return int(gemma4["total_params"])
 
     a = _analyze(config)
     if a is None:
@@ -715,6 +839,11 @@ def estimate_active_bytes_per_token(config: dict, context_length: int = 128) -> 
         kv_bytes_per_layer = nemotron["kv_elems_per_token"] * _KV_CACHE_BYTES_PER_ELEM
         kv_bytes = nemotron["n_full_attn_layers"] * kv_bytes_per_layer * context_length
         return int(active_weight_bytes + kv_bytes)
+    gemma4 = _gemma4_estimate(config)
+    if gemma4 is not None:
+        bits = _effective_bits(config)
+        active_weight_bytes = gemma4["active_params"] * bits / 8
+        return int(active_weight_bytes + _gemma4_kv_bytes(gemma4, context_length))
 
     a = _analyze(config)
     if a is None:
@@ -782,6 +911,18 @@ def _kv_bytes(a: ArchProfile, context_length: int) -> int:
     return int(total)
 
 
+def _gemma4_kv_bytes(g: dict, context_length: int) -> int:
+    """KV-cache read bytes for one decode step of a Gemma4-family model --
+    full-attention and sliding-attention layers are tracked separately
+    since they have different per-layer KV element counts (see
+    _gemma4_estimate) as well as different context scaling."""
+    sliding_window = g["sliding_window"]
+    sliding_context = min(context_length, sliding_window) if sliding_window else context_length
+    total = g["n_full_attn_layers"] * g["kv_full_elems_per_token"] * _KV_CACHE_BYTES_PER_ELEM * context_length
+    total += g["n_sliding_attn_layers"] * g["kv_sliding_elems_per_token"] * _KV_CACHE_BYTES_PER_ELEM * sliding_context
+    return int(total)
+
+
 def estimate_kv_bytes_per_token(config: dict, context_length: int = 128) -> Optional[int]:
     """Just the KV-cache-read component of estimate_active_bytes_per_token,
     exposed separately since it's the term that changes with context
@@ -791,6 +932,9 @@ def estimate_kv_bytes_per_token(config: dict, context_length: int = 128) -> Opti
     if nemotron is not None:
         kv_bytes_per_layer = nemotron["kv_elems_per_token"] * _KV_CACHE_BYTES_PER_ELEM
         return int(nemotron["n_full_attn_layers"] * kv_bytes_per_layer * context_length)
+    gemma4 = _gemma4_estimate(config)
+    if gemma4 is not None:
+        return _gemma4_kv_bytes(gemma4, context_length)
 
     a = _analyze(config)
     if a is None:
@@ -812,6 +956,12 @@ def count_moe_layers(config: dict) -> int:
         c = config.get("text_config", config)
         pattern = c.get("hybrid_override_pattern", "")
         return sum(1 for ch in pattern if ch == "E")
+    gemma4 = _gemma4_estimate(config)
+    if gemma4 is not None:
+        c = config.get("text_config", config)
+        n_experts = c.get("num_experts") or 0
+        layers = c.get("num_hidden_layers") or 0
+        return layers if (c.get("enable_moe_block") and n_experts > 0) else 0
 
     a = _analyze(config)
     if a is None or not a.moe_layer_mask:

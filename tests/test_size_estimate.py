@@ -2,6 +2,7 @@ from blune_cli.size_estimate import (
     _analyze,
     _dsa_indexer_params,
     _gated_delta_net_params,
+    _gemma4_estimate,
     _lfm2_conv_params,
     _mamba2_ssm_params,
     _mamba_ssm_params,
@@ -448,6 +449,97 @@ def test_nemotron_h_not_detected_without_hybrid_override_pattern():
     Nemotron-H single-component path just because it happens to share a
     field name."""
     assert _nemotron_h_estimate({"hidden_size": 2048, "num_hidden_layers": 12}) is None
+
+
+def _gemma4_config(**overrides):
+    config = {
+        "model_type": "gemma4",
+        "hidden_size": 2816,
+        "num_hidden_layers": 6,
+        "intermediate_size": 2112,
+        "num_attention_heads": 16,
+        "head_dim": 256,
+        "global_head_dim": 512,
+        "num_key_value_heads": 8,
+        "num_global_key_value_heads": 2,
+        "attention_k_eq_v": True,
+        "num_kv_shared_layers": 0,
+        "enable_moe_block": True,
+        "num_experts": 128,
+        "top_k_experts": 8,
+        "moe_intermediate_size": 704,
+        "vocab_size": 262144,
+        "layer_types": (["sliding_attention"] * 4 + ["full_attention"]) * 1 + ["sliding_attention"],
+    }
+    config.update(overrides)
+    return config
+
+
+def test_gemma4_runs_dense_mlp_and_moe_in_parallel_not_either_or():
+    """Regression test for this project's single worst-fit calibration
+    point (gemma-4-26b-a4b-it-4bit, +20.1% error): Gemma4DecoderLayer
+    sums a full dense MLP AND the MoE experts on every layer
+    (`h = h1 + h2` in mlx_lm.models.gemma4_text), unlike
+    first_k_dense_replace-style interleaving where a layer is either
+    dense or MoE. Active params must include BOTH per layer, not just
+    whichever the generic moe_layer_mask path would have picked."""
+    config = _gemma4_config()
+    result = _gemma4_estimate(config)
+    assert result is not None
+
+    hidden = config["hidden_size"]
+    dense_mlp = 3 * hidden * config["intermediate_size"]
+    router = hidden * config["num_experts"]
+    expert_unit = 3 * hidden * config["moe_intermediate_size"]
+    moe_active = router + config["top_k_experts"] * expert_unit
+
+    # Active params per layer must be at least dense_mlp + moe_active
+    # (plus attention, plus embedding/lm_head amortized in) -- if the
+    # dense MLP were dropped (the bug this guards against), active
+    # params would fall short of this floor by a full dense_mlp's worth
+    # per layer.
+    per_layer_floor = dense_mlp + moe_active
+    assert result["active_params"] >= config["num_hidden_layers"] * per_layer_floor
+
+
+def test_gemma4_full_attention_uses_global_head_dim_and_no_v_proj():
+    """Full-attention layers use global_head_dim/num_global_key_value_heads
+    and, under attention_k_eq_v, have no separate v_proj at all (values =
+    keys) -- verified directly in mlx_lm.models.gemma4_text.Attention.
+    A config with only full-attention layers and one with only sliding
+    layers must therefore price attention differently."""
+    hidden = 2816
+    n_experts = 0  # isolate the attention term from the MLP term
+    all_full = _gemma4_config(
+        num_hidden_layers=1, layer_types=["full_attention"], num_experts=n_experts, enable_moe_block=False
+    )
+    all_sliding = _gemma4_config(
+        num_hidden_layers=1, layer_types=["sliding_attention"], num_experts=n_experts, enable_moe_block=False
+    )
+    full_result = _gemma4_estimate(all_full)
+    sliding_result = _gemma4_estimate(all_sliding)
+    assert full_result is not None and sliding_result is not None
+
+    dense_mlp = 3 * hidden * all_full["intermediate_size"]
+    full_attn_only = full_result["active_params"] - dense_mlp - hidden * all_full["vocab_size"]
+    sliding_attn_only = sliding_result["active_params"] - dense_mlp - hidden * all_sliding["vocab_size"]
+
+    # Full: q_proj+o_proj at global_head_dim=512 (no k_eq_v discount
+    # cancels this out) plus k_proj only (no v_proj) at
+    # num_global_key_value_heads=2, global_head_dim=512.
+    expected_full = 2 * hidden * (16 * 512) + hidden * (2 * 512)
+    # Sliding: standard q+o+k+v at head_dim=256, num_key_value_heads=8.
+    expected_sliding = 2 * hidden * (16 * 256) + 2 * hidden * (8 * 256)
+
+    assert full_attn_only == expected_full
+    assert sliding_attn_only == expected_sliding
+    assert full_attn_only != sliding_attn_only
+
+
+def test_gemma4_not_detected_for_other_model_types():
+    """A non-Gemma4 config sharing some field names must not be routed
+    through this dedicated estimator."""
+    assert _gemma4_estimate({"model_type": "llama", "hidden_size": 2048, "num_hidden_layers": 12}) is None
 
 
 def test_dsa_indexer_matches_real_mlx_lm_layer():

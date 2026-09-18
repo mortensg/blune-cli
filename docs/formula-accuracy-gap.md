@@ -291,3 +291,48 @@ absolute decode time itself (circular, can't use the answer as an
 input), total layer count, or total active bytes. Needs at least one
 more small/fast real measurement (a third point) before any specific
 functional form could be fit rather than guessed.
+
+## 8. Gemma4's parallel dense+MoE MLP and per-layer-type attention -- RESOLVED
+
+`gemma-4-26b-a4b-it-4bit` was this project's single worst-fit
+calibration point across every prior refit (+19.6% to +20.1%), never
+previously root-caused -- it was just going through the generic
+mixer+MLP-per-layer formula like everything else. Reading
+`mlx_lm/models/gemma4_text.py` directly found this architecture diverges
+from that generic assumption in two real, structural ways:
+
+1. When `enable_moe_block` is set, `DecoderLayer.__call__` runs the
+   dense MLP AND the MoE experts on EVERY layer, in parallel, and sums
+   them (`h = h1 + h2`) -- it is not an interleaved dense-XOR-MoE split
+   like `first_k_dense_replace`-style architectures. The generic
+   `moe_layer_mask` path (used everywhere else in `size_estimate.py`)
+   treats a layer as either dense or MoE, never both, so for this
+   config every one of the 30 layers had its entire dense MLP
+   (3*hidden*intermediate_size, ~17.8M params/layer here) silently
+   omitted -- not mis-priced, just completely missing.
+2. Full-attention layers (5 of 30, per `sliding_window_pattern`) use a
+   DIFFERENT `global_head_dim` (512 here, vs. 256 for the other 25
+   sliding-attention layers) and, when `attention_k_eq_v` is set (true
+   in this config), `num_global_key_value_heads` with NO separate
+   `v_proj` at all -- `values = keys` directly, confirmed in
+   `Attention.__init__`/`__call__`. A single config-wide head_dim/
+   kv_heads undercounted the wider full-attention layers while also
+   overcounting a v_proj that these specific layers don't have.
+
+Implemented as a dedicated `_gemma4_estimate()` in `size_estimate.py`
+(same pattern as `_nemotron_h_estimate()` -- bypasses the generic
+per-layer loop entirely, wired into all 4 downstream estimate functions
+plus `count_moe_layers`), rather than special-casing the generic path.
+Also handles `num_kv_shared_layers` (trailing layers of a given
+attention type that reuse an earlier layer's K/V and own no separate
+k_proj/v_proj or KV-cache slot) and per-layer-input gating
+(`hidden_size_per_layer_input`, the 2B/4B-variant mechanism) generically,
+though no cached config currently exercises either.
+
+Effect: `gemma-4-26b-a4b-it-4bit`'s own error dropped from +20.1% to
++6.7% after a full 9-point refit, and the whole calibration set's mean
+error dropped from 7.2% to **5.9%** (max 21.1% -> 20.1% -> 19.8%) -- a
+genuine structural fix, confirmed by how it moved the numbers: one
+badly-wrong point improved a lot, the rest stayed roughly where they
+were, which is what fixing a real bug looks like as opposed to a
+refit trading error between points.
