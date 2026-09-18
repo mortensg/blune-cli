@@ -91,6 +91,19 @@ blune search --limit 20 --library mlx           # find + rank candidates
 blune test mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit --library mlx
 blune compare mlx-community/gpt-oss-20b-OptiQ-4bit   # mlx vs vllm
 blune gguf https://huggingface.co/.../model.gguf     # llama.cpp estimate
+
+blune sync-configs                    # bulk-cache config.json for every
+                                       # mlx-community model (2800+, one
+                                       # HTTP call each, run once ever)
+blune sweep --library mlx             # probe EVERY cached model, one at a
+                                       # time, printing a permanent result
+                                       # line as each one finishes:
+                                       #   [12/2856] repo/name - 83.6 tok/s (estimated)
+                                       #   [13/2856] repo/name - kører....
+                                       # skips models estimated too large
+                                       # for this machine's RAM; each probe
+                                       # runs in its own subprocess so one
+                                       # crash/hang can't kill the sweep
 ```
 
 Add `--offline` to any command to use only the local config cache -- zero
