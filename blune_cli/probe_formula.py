@@ -10,64 +10,93 @@ Methodology
 -----------
 tok/s = bandwidth / bytes-per-token is the physics floor, but treating it
 as the WHOLE model undersells it badly and inconsistently: fit against
-5 real M4 Pro measurements, the naive bytes-per-token-only estimate is off
+5 real M4 Pro measurements, a naive bytes-per-token-only estimate is off
 by 2-3.75x, and -- critically -- by a DIFFERENT factor for dense vs. MoE
-architectures (0.54 vs. 0.27-0.43), so no single calibration ratio can
-correct it the way probe_mlx.CALIBRATION_RATIO does.
+architectures, so no single calibration ratio can correct it the way
+probe_mlx.CALIBRATION_RATIO does for the real-execution probe.
 
-The fix: decompose predicted time-per-token into two additive terms
-instead of one multiplicative ratio --
+The fix: decompose predicted time-per-token into two terms fit by linear
+regression against the same 5 real measurements --
 
-    time_per_token = bytes_per_token / bandwidth + FIXED_OVERHEAD_SEC
+    time_per_token = bytes_per_token / (bandwidth * BANDWIDTH_CALIBRATION_RATIO)
+                      + FIXED_OVERHEAD_SEC
 
-`bytes_per_token / bandwidth` is the genuine memory-bound transfer time.
-FIXED_OVERHEAD_SEC is MLX's roughly constant per-step dispatch cost
-(kernel launch, graph-eval bookkeeping) -- fit against the same 5 models,
-it lands in a narrow 6.7-9.6ms band (mean 7.775ms, stdev 1.16ms) REGARDLESS
-of model size, which is exactly what "fixed per-step overhead" predicts
-and the earlier multiplicative-ratio model couldn't explain. That's a
-proportionally huge fraction of total decode time for MoE models (whose
-bytes-per-token is small by design), which is why they showed a much
-lower ratio in the naive model.
+`bytes_per_token` now comes from size_estimate.py's architecture-aware
+estimate (MoE active-vs-total experts and shared experts, GQA/MLA-aware
+KV-cache sizing, hybrid Mamba/SSM layers excluded from the growing KV
+term, sliding-window capping, dense/MoE-interleaved layers via
+first_k_dense_replace) -- see docs/research-findings.md for the full
+architectural derivations this was built from.
 
-Calibration data (M4 Pro, 48GB; see measurements.json for the raw numbers):
-    Qwen3-Coder-30B-A3B-Instruct-4bit:  real 89.8 tok/s, formula 81.9 (-8.8%)
-    gemma-4-26b-a4b-it-4bit:            real 76.7 tok/s, formula 88.9 (+15.9%)
-    Qwen2.5-Coder-7B-Instruct-4bit:     real 57.2 tok/s, formula 58.0 (+1.4%)
-    Qwen3.6-35B-A3B-4bit:               real 88.3 tok/s, formula 88.4 (+0.1%)
-    gpt-oss-20b-OptiQ-4bit:             real 83.6 tok/s, formula 77.4 (-7.4%)
-mean absolute error 6.7%, max 15.9% -- fit on only 5 points with 1 free
-parameter, so treat this as a genuinely useful fast estimate, not a
+Honesty note on the two fitted constants: BANDWIDTH_CALIBRATION_RATIO
+comes out of the regression at ~1.35x the chip's spec-sheet bandwidth,
+which is NOT a claim that real bandwidth exceeds the datasheet -- it's an
+empirical correction absorbing whatever this formula still doesn't model
+explicitly (activation/intermediate-tensor memory traffic between layers,
+this project's own probe methodology repeatedly decoding against the same
+resident weights, and any remaining architectural approximation error),
+the same way probe_mlx.CALIBRATION_RATIO is an empirical constant rather
+than a first-principles derivation. FIXED_OVERHEAD_SEC (~7.8ms) is far
+more likely to be "real" in a physical sense -- it landed in the same
+6.7-9.6ms band under three different versions of the bytes-per-token
+formula during development, which is what you'd expect from a genuine,
+roughly model-size-independent MLX per-decode-step dispatch cost (kernel
+launch, graph-eval bookkeeping) rather than a fitting artifact.
+
+Calibration data (M4 Pro, 48GB; see measurements.json for the raw numbers,
+context_length=115 matching this project's own probe's prompt+decode
+range):
+    Qwen3-Coder-30B-A3B-Instruct-4bit:  real 89.8 tok/s, formula 84.0 (-6.4%)
+    gemma-4-26b-a4b-it-4bit:            real 76.7 tok/s, formula 82.1 (+7.0%)
+    Qwen2.5-Coder-7B-Instruct-4bit:     real 57.2 tok/s, formula 57.7 (+0.8%)
+    Qwen3.6-35B-A3B-4bit:               real 88.3 tok/s, formula 92.1 (+4.3%)
+    gpt-oss-20b-OptiQ-4bit:             real 83.6 tok/s, formula 79.0 (-5.5%)
+mean absolute error 4.8%, max 7.0% -- fit on only 5 points with 2 free
+parameters, so treat this as a genuinely useful fast estimate, not a
 replacement for probe_mlx.py's real-execution probe when accuracy matters
-more than speed.
+more than speed, and re-fit both constants if/when more real measurements
+across more architectures become available.
 """
 from typing import Optional
 
 from .size_estimate import estimate_active_bytes_per_token
 
-FIXED_OVERHEAD_SEC = 0.007775  # MLX's per-decode-step dispatch cost, fit from real data
+BANDWIDTH_CALIBRATION_RATIO = 1.353  # see module docstring -- empirical, not literal "bandwidth > spec"
+FIXED_OVERHEAD_SEC = 0.007755  # MLX's per-decode-step dispatch cost, fit from real data
 
 
-def probe(repo_id: str, config: dict, bandwidth_gbs: float, calibrate: bool = True) -> dict:
+def probe(
+    repo_id: str,
+    config: dict,
+    bandwidth_gbs: float,
+    context_length: int = 115,
+    calibrate: bool = True,
+) -> dict:
     """Instant tok/s estimate from config.json alone -- no MLX, no
-    subprocess, no model construction. See module docstring for the
+    subprocess, no model construction. context_length lets you see how a
+    specific model's speed degrades at longer conversations (KV-cache
+    read bytes grow with it for ordinary attention layers; hybrid
+    Mamba/SSM layers and sliding-window-capped layers don't scale the
+    same way -- see size_estimate.py). See module docstring for the
     calibration methodology and accuracy."""
-    bytes_per_token = estimate_active_bytes_per_token(config)
+    bytes_per_token = estimate_active_bytes_per_token(config, context_length=context_length)
     if bytes_per_token is None:
         raise ValueError(
             "couldn't determine hidden_size/num_hidden_layers from this "
             "config -- formula estimate needs a standard transformer config"
         )
 
-    transfer_time = bytes_per_token / (bandwidth_gbs * 1e9)
+    ratio = BANDWIDTH_CALIBRATION_RATIO if calibrate else 1.0
     overhead = FIXED_OVERHEAD_SEC if calibrate else 0.0
+    transfer_time = bytes_per_token / (bandwidth_gbs * ratio * 1e9)
     tps = 1.0 / (transfer_time + overhead)
 
     return {
         "library": "mlx (formula)",
         "repo_id": repo_id,
         "architecture": config.get("model_type"),
+        "context_length": context_length,
         "bytes_per_token_active": round(bytes_per_token / 1e6, 1),
         "estimated_real_tps": round(tps, 1),
-        "confidence": "medium (config-only formula, mean 6.7% error on 5-point calibration set)",
+        "confidence": "medium (config-only formula, mean 4.8% error on 5-point calibration set)",
     }

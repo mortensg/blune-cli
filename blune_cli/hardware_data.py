@@ -20,6 +20,14 @@ class ChipSpec:
     max_unified_or_vram_gb: Optional[int] = None
     tflops16: Optional[float] = None
     notes: str = ""
+    # Sustained (not spec-sheet peak) bandwidth as a fraction of
+    # memory_bandwidth_gbs -- under real, continuous inference workloads,
+    # memory controllers and thermal limits mean realized bandwidth runs
+    # below the datasheet number. 0.85 is a reasonable default for
+    # actively-cooled Apple Silicon desktops/laptops under short bursts;
+    # passively-cooled parts (MacBook Air) or long sustained runs would
+    # see more throttling than this models.
+    sustained_bandwidth_ratio: float = 0.85
 
 
 APPLE_SILICON: list[ChipSpec] = [

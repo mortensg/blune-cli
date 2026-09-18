@@ -23,6 +23,14 @@ class DetectedMachine:
     def bandwidth_gbs(self) -> Optional[float]:
         return self.chip_spec.memory_bandwidth_gbs if self.chip_spec else None
 
+    @property
+    def sustained_bandwidth_gbs(self) -> Optional[float]:
+        """Realistic bandwidth under continuous inference load, not the
+        spec-sheet peak -- see ChipSpec.sustained_bandwidth_ratio."""
+        if not self.chip_spec:
+            return None
+        return self.chip_spec.memory_bandwidth_gbs * self.chip_spec.sustained_bandwidth_ratio
+
 
 def _run(cmd: list[str]) -> str:
     try:

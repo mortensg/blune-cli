@@ -194,7 +194,9 @@ def cmd_sweep(args, machine):
 
         if args.compare:
             try:
-                formula_tps = probe_formula.probe(repo, config, machine.bandwidth_gbs)["estimated_real_tps"]
+                formula_tps = probe_formula.probe(
+                    repo, config, machine.bandwidth_gbs, context_length=args.context
+                )["estimated_real_tps"]
             except Exception as e:
                 formula_tps = None
                 formula_err = str(e)
@@ -233,7 +235,7 @@ def cmd_sweep(args, machine):
 
         if args.formula:
             try:
-                r = probe_formula.probe(repo, config, machine.bandwidth_gbs)
+                r = probe_formula.probe(repo, config, machine.bandwidth_gbs, context_length=args.context)
                 tps = r["estimated_real_tps"]
                 ui.stream_result(i, len(repos), repo, f"{tps} tok/s (formula)", "magenta")
                 ok += 1
@@ -366,6 +368,15 @@ def main():
         action="store_true",
         help="run both the real probe and the formula estimate for each model, "
         "showing both plus the delta between them",
+    )
+    p_sweep.add_argument(
+        "--context",
+        type=int,
+        default=115,
+        help="context length (tokens already cached) to assume for the formula's "
+        "KV-cache term -- longer contexts show slower speed for models without "
+        "sliding-window/hybrid-SSM layers (default 115, matching this project's "
+        "own MLX calibration measurements)",
     )
 
     args = parser.parse_args()

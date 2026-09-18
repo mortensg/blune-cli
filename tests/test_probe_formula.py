@@ -14,16 +14,16 @@ _CALIBRATION_SET = {
 }
 
 
-def test_formula_within_20pct_of_real_on_calibration_set():
+def test_formula_within_15pct_of_real_on_calibration_set():
     """Regression test for the formula's accuracy on the exact data it was
-    calibrated against. A naive bytes-per-token-only estimate (no fixed
-    overhead term) was off by 2-3.75x here, and inconsistently between
-    dense and MoE architectures -- this guards against that regressing."""
+    calibrated against (mean error 4.8%, max 7.0% at fit time -- 15% here
+    leaves headroom for the fit to be redone without breaking this test on
+    small changes)."""
     for repo_id, real_tps in _CALIBRATION_SET.items():
         config = config_cache.get_config(repo_id, offline=True)
         result = probe(repo_id, config, M4_PRO_BANDWIDTH_GBS)
         error_pct = abs(result["estimated_real_tps"] - real_tps) / real_tps * 100
-        assert error_pct < 20, f"{repo_id}: {error_pct:.1f}% error (formula={result['estimated_real_tps']}, real={real_tps})"
+        assert error_pct < 15, f"{repo_id}: {error_pct:.1f}% error (formula={result['estimated_real_tps']}, real={real_tps})"
 
 
 def test_formula_needs_no_mlx_or_network():
@@ -39,3 +39,13 @@ def test_uncalibrated_mode_returns_higher_raw_estimate():
     calibrated = probe("x", config, M4_PRO_BANDWIDTH_GBS, calibrate=True)
     raw = probe("x", config, M4_PRO_BANDWIDTH_GBS, calibrate=False)
     assert raw["estimated_real_tps"] > calibrated["estimated_real_tps"]
+
+
+def test_longer_context_reduces_estimated_speed():
+    """KV-cache read bytes grow with context length for ordinary attention
+    models, so speed at a long context should be lower than at a short
+    one for the same model."""
+    config = config_cache.get_config("mlx-community/Qwen2.5-Coder-7B-Instruct-4bit", offline=True)
+    short_ctx = probe("x", config, M4_PRO_BANDWIDTH_GBS, context_length=128)
+    long_ctx = probe("x", config, M4_PRO_BANDWIDTH_GBS, context_length=32_000)
+    assert long_ctx["estimated_real_tps"] < short_ctx["estimated_real_tps"]
