@@ -256,6 +256,59 @@ specifically (not just "is this a fine-grained MoE"), the additive
 per-MoE-layer term in `probe_formula.py` should become a function of
 `d_ff` rather than a flat constant.
 
+### 5b. Systematic width sweep run -- real curve found, but integration into the global formula made things WORSE
+
+Ran the systematic sweep item 5 and the mlx-97-percent-research-prompt.md
+brief both called for: chained-layer micro-benchmark (quantized 4-bit,
+group_size=64, E=32/k=4/hidden=2048 matching LFM2-8B-A1B, slope read
+from both N=4/16 and N=16/32 chain pairs for a stability check -- both
+gave the same curve) with `moe_intermediate_size` swept across
+256/512/1024/1536/1792/2048/4096/8192. Real, densely-sampled result (not
+1-2 anecdotal points):
+
+    w=  256  eta=0.196     w= 1792  eta=0.529 (LFM2-8B-A1B's real width)
+    w=  512  eta=0.354     w= 2048  eta=0.594
+    w= 1024  eta=0.469     w= 4096  eta=0.680
+    w= 1536  eta=0.527     w= 8192  eta=0.715
+
+Fits cleanly to a saturating hyperbolic curve, `eta(w) = eta_dense *
+w/(w+Kw)`, with `eta_dense=0.809, Kw=773` (fit error <5% at every
+sampled width) -- the same functional FORM a research pass had
+independently guessed, though its specific guessed constants
+(`eta_dense≈0.85, Kw≈1500-2000`) were off by roughly 2x on `Kw`. Note
+this sweep's own `eta=0.529` at LFM2-8B-A1B's exact width is itself
+noticeably different from the earlier, cruder single-point estimate
+above (0.452) -- likely a real methodology difference (this sweep
+didn't include a shared-expert or router term matching LFM2-8B-A1B's
+*exact* full layer, only routed experts) rather than either number being
+wrong; treat 0.529 as the more careful, reproducible measurement of the
+two.
+
+**Integration attempt and result:** implemented this as a bytes-level
+correction (routed-expert-FFN bytes divided by `bandwidth * ratio * eta(w)`
+instead of the flat `bandwidth * ratio` everything else uses), keeping
+`eta_dense`/`Kw` FIXED (not re-fit -- they came from this independent
+8-point sweep, not the 9-point calibration set, specifically to avoid
+spending more of that set's limited degrees of freedom) and re-fitting
+only the existing 3 parameters. Result: **mean error got WORSE, 5.9% ->
+15.3%**, and `gemma-4-26b-a4b-it-4bit` (unaffected by this change at all,
+since it goes through its own dedicated `_gemma4_estimate` path) jumped
+from +6.7% to +40.0% error. Making MoE-heavy points "need more time" via
+the eta discount forced the shared `BANDWIDTH_CALIBRATION_RATIO` to
+refit upward (0.78 -> 0.89) to compensate, which then overcorrected
+every point NOT affected by the discount -- the exact "one shared knob
+trades error between points" failure mode this project has repeatedly
+flagged as a risk of adding structure without enough independent data
+to isolate it. **Not adopted** -- reverted to the flat-bytes formula
+(5.9%/19.8%). The `eta(w)` curve itself is kept here as real, verified,
+reusable ground truth; what's still needed before it can help is either
+more real MoE-family measurements to fit a formula structure that
+properly separates "which bytes get which effective bandwidth" without
+collapsing back onto one shared ratio, or moving the flat
+`MOE_LAYER_OVERHEAD_SEC` term to also depend on width so the two terms
+absorb the effect together instead of one uncalibrated knob compensating
+for the other.
+
 ## 7. Small/fast dense-hybrid models don't fit the same global 3-parameter model -- confirmed, not just LFM2.5-specific
 
 Downloaded and measured `Josiefied-Qwen3.5-0.8B-gabliterated-v1-4bit`
