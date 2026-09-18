@@ -84,6 +84,13 @@
       "machine": "m4_pro_48gb",
       "real_decode_tps": 339.7,
       "notes": "dense GatedDeltaNet hybrid (Qwen3.5, NO MoE -- first pure-dense GatedDeltaNet ground-truth point; Qwen3.6-35B-A3B-4bit above is GatedDeltaNet+MoE), 5-trial mean (std 2.3, 0.68% relative) via mlx_lm.generate, 100 generated tokens/trial. Also used to confirm probe_mlx.py's synthetic-probe deficit is far larger for GatedDeltaNet-hybrid architectures (~33-40% raw) than for dense/MoE (~15-19%) -- see docs/formula-accuracy-gap.md item 4"
+    },
+    {
+      "repo_id": "mlx-community/mamba-130m-hf-bf16",
+      "library": "mlx",
+      "machine": "m4_pro_48gb",
+      "real_decode_tps": 490.8,
+      "notes": "classic (non-hybrid) Mamba-1, 130M params, unquantized bf16, tied embeddings -- first pure-SSM ground-truth point (previously zero coverage: every other SSM-family point in this set is a hybrid). 5-trial mean (std 2.4, 0.49% relative) via mlx_lm.generate, 100 generated tokens/trial. Downloading and testing this real config also surfaced two real weight-count bugs, both fixed: (1) pure-SSM architectures (no num_attention_heads field at all) were falling through layer_kinds detection to generic 'full attention' and getting priced as 4*hidden*hidden blocks -- confirmed real params inflated from ~130M to 218.8M (+68%); (2) even after fixing detection, the generic per-layer loop still added a phantom dense MLP per layer, since mlx_lm.models.mamba.ResidualBlock has ONLY a mixer, no separate MLP at all (confirmed reading mamba.py directly) -- both fixed via ArchProfile.is_pure_ssm. A third, more general bug (tie_word_embeddings never read anywhere, confirmed via this repo's own safetensors index having no separate lm_head weight) was also found and fixed, affecting RAM sizing (not the speed formula, which already counted lm_head bytes once regardless of tying). This model itself is NOT included in probe_formula.py's speed-formula calibration set -- like Josiefied-Qwen3.5-0.8B above, it's small/fast enough (490.8 tok/s) to hit the same 'small/fast model breaks the global fixed-overhead term' problem (formula predicts 856.9, +74.6% error) -- see docs/formula-accuracy-gap.md item 7, now confirmed on a THIRD independent architecture family."
     }
   ]
 }

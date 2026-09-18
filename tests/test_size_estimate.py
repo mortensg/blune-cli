@@ -638,3 +638,85 @@ def test_fits_in_ram_false_for_huge_moe_model():
 
 def test_fits_in_ram_fails_open_when_unestimable():
     assert fits_in_ram({}, total_ram_gb=48) is True
+
+
+def _mamba1_config(**overrides):
+    # Real field names/values from mlx-community/mamba-130m-hf-bf16.
+    config = {
+        "model_type": "mamba",
+        "hidden_size": 768,
+        "num_hidden_layers": 24,
+        "intermediate_size": 1536,
+        "state_size": 16,
+        "conv_kernel": 4,
+        "time_step_rank": 48,
+        "vocab_size": 50280,
+    }
+    config.update(overrides)
+    return config
+
+
+def test_pure_mamba1_layers_detected_as_ssm_not_generic_attention():
+    """Regression test: a config with NO num_attention_heads field (a
+    classic, non-hybrid Mamba-1 architecture) has no layer_types,
+    sliding_window, or layer_group_size field either, so the generic
+    layer_kinds detection fell through to 'full' (ordinary attention)
+    for every layer -- then priced each one as a generic 4*hidden*hidden
+    block, since there were no heads/kv_heads/head_dim to build a real
+    attention formula from either. A real mamba-130m-hf-bf16 config was
+    inflated from ~130M real params to 218.8M (+68%) by this."""
+    a = _analyze(_mamba1_config())
+    assert a is not None
+    assert set(a.layer_kinds) == {"ssm"}
+    assert a.is_pure_ssm is True
+
+
+def test_pure_mamba1_layer_has_no_separate_mlp():
+    """Regression test for a second bug found alongside the detection
+    gap: mlx_lm.models.mamba.ResidualBlock has ONLY a mixer and a norm,
+    no separate feed-forward block at all (unlike GatedDeltaNet/LFM2
+    hybrid layers, which each pair their mixer with its own MLP). Even
+    after fixing SSM-layer detection, the generic per-layer loop was
+    still adding a phantom dense MLP on top of every Mamba layer."""
+    config = _mamba1_config()
+    total = estimate_total_params(config)
+    # Real ~130M-param model (with tied embeddings, see below): a
+    # spurious per-layer dense MLP (using intermediate_size=1536, which
+    # coincidentally IS also Mamba's own d_inner field) would add
+    # roughly another 85M on top -- assert well below that ceiling.
+    assert 100_000_000 < total < 180_000_000, f"expected ~130M-ish, got {total}"
+
+
+def test_hybrid_ssm_still_gets_its_own_mlp():
+    """The no-separate-MLP rule must NOT apply to hybrid architectures
+    where the same layer legitimately has both a mixer AND its own MLP
+    (GatedDeltaNet, LFM2 ShortConv) -- only to a genuinely pure,
+    single-mixer-type architecture like classic Mamba-1."""
+    config = {
+        "hidden_size": 2048,
+        "num_hidden_layers": 4,
+        "linear_num_value_heads": 32,
+        "linear_num_key_heads": 16,
+        "linear_key_head_dim": 128,
+        "linear_value_head_dim": 128,
+        "linear_conv_kernel_dim": 4,
+        "intermediate_size": 8192,
+        "vocab_size": 32000,
+    }
+    a = _analyze(config)
+    assert a is not None
+    assert a.is_pure_ssm is False
+
+
+def test_tied_embeddings_not_double_counted():
+    """Regression test: config.json's tie_word_embeddings was never read
+    anywhere -- every total-params estimate assumed a separate lm_head
+    matrix even for repos that tie it to the embedding table. Confirmed
+    on a real mlx-community/mamba-130m-hf-bf16 safetensors index (only
+    `backbone.embeddings.weight`, no separate lm_head weight at all,
+    despite config.json having no explicit tie_word_embeddings field --
+    classic Mamba always ties by architectural convention)."""
+    tied_total = estimate_total_params(_mamba1_config())
+    untied_total = estimate_total_params(_mamba1_config(tie_word_embeddings=False))
+    hidden, vocab = 768, 50280
+    assert untied_total - tied_total == hidden * vocab

@@ -389,3 +389,75 @@ genuine structural fix, confirmed by how it moved the numbers: one
 badly-wrong point improved a lot, the rest stayed roughly where they
 were, which is what fixing a real bug looks like as opposed to a
 refit trading error between points.
+
+## 9. Classic (non-hybrid) Mamba-1 had zero ground-truth coverage and two real weight-count bugs -- RESOLVED
+
+Every SSM-family calibration point so far (`Qwen3.6-35B-A3B-4bit`,
+`LFM2-8B-A1B`, `Huihui-LFM2.5-1.2B`, `granite-4.0-h-tiny`,
+`NVIDIA-Nemotron-3-Nano-30B-A3B`, `Josiefied-Qwen3.5-0.8B`) is a
+**hybrid** -- attention mixed with GatedDeltaNet/ShortConv/Mamba-2 layer
+by layer. Downloaded `mlx-community/mamba-130m-hf-bf16` (real classic
+Mamba-1, 130M params, non-hybrid, non-DeepSeek) as the first-ever
+pure-SSM ground-truth point, and found two real weight-count bugs
+verified against `mlx_lm/models/mamba.py` directly:
+
+1. **Detection gap:** `_analyze()`'s layer_kinds logic only recognizes
+   SSM layers via a `layer_types` list, `sliding_window`, or bailing's
+   `layer_group_size` field -- a classic Mamba config has NONE of these
+   (no `num_attention_heads` field at all, since there's no attention),
+   so every layer fell through to the generic "full attention" default
+   and got priced as a bare `4*hidden*hidden` block (no real
+   heads/kv_heads/head_dim to build an actual formula from). Confirmed
+   real: inflated this repo's true ~130M params to 218.8M (+68%). Fixed
+   via `_is_pure_ssm_architecture()` (no attention heads + a known SSM
+   formula matches -> every layer is that mixer type).
+2. **Phantom per-layer MLP:** even after fixing detection, the generic
+   per-layer loop still added a dense MLP (`3*hidden*intermediate_size`)
+   on top of every SSM layer -- correct for GatedDeltaNet/LFM2 hybrids
+   (confirmed each pairs its mixer with a real, separate MLP: read
+   `qwen3_next.py`/`lfm2_moe.py` directly), but wrong for classic Mamba:
+   `mlx_lm.models.mamba.ResidualBlock.__init__` has ONLY `self.mixer`
+   and `self.norm` -- no separate MLP exists at all (the mixer's own
+   `in_proj`, expanded to `2*d_inner`, already does what a transformer's
+   attention+MLP pair does). This bug happened to be invisible on inputs
+   like this one where `intermediate_size` doubles as both Mamba's own
+   `d_inner` field AND the generic formula's dense-MLP width, so it
+   silently added a second, real-looking but nonexistent block. Fixed
+   via `_pure_ssm_has_no_separate_mlp()` -- deliberately narrower than
+   detection above, matching ONLY Mamba-1/Mamba-2 (not GatedDeltaNet/
+   LFM2, which a synthetic all-GatedDeltaNet test config caught trying
+   to wrongly exclude their real MLP too).
+
+Combined effect on `estimate_total_params`: 218.8M -> 167.0M (bug 2
+alone) -> 128.4M once a third, more general bug was also fixed (see
+below) -- landing within 1.2% of the model's real ~130M name.
+
+**A third, more general bug found alongside these:** `tie_word_embeddings`
+was never read anywhere in `size_estimate.py` -- every total-params
+estimate assumed a separate `lm_head` matrix even for repos that tie it
+to the embedding table (a common practice, not unique to Mamba).
+Confirmed real via this repo's own safetensors index: only
+`backbone.embeddings.weight` exists, no separate `lm_head` weight at
+all, despite `config.json` having no explicit `tie_word_embeddings`
+field (classic Mamba ties by hardcoded architectural convention, not a
+per-repo config choice). Fixed via `_embedding_multiplier()`: honors an
+explicit `tie_word_embeddings` field when present, else checks a small
+hardcoded list of known-always-tied `model_type`s, else defaults to
+untied (2x) as before -- **this only affects RAM sizing
+(`estimate_total_params`/`estimate_bytes`/`fits_in_ram`), not the speed
+formula**, which already counted `lm_head` bytes exactly once regardless
+of tying.
+
+**Speed-formula result:** even with both weight-count bugs fixed,
+`probe_formula.py` still predicts this model at +74.6% error (real 490.8
+tok/s over 5 trials, std 0.49%; formula predicts 856.9). This is NOT a
+new problem -- it's a third, independent confirmation of item 7's
+already-documented "small/fast models don't fit the same global
+fixed-overhead term" finding (previously seen on `Huihui-LFM2.5-1.2B`
+and `Josiefied-Qwen3.5-0.8B`), now reproduced on a completely different
+architecture family (classic Mamba, not GatedDeltaNet) and a completely
+different quantization state (unquantized bf16, not 4/8-bit) --
+strengthening the case that this is a general property of very fast/
+small models rather than something specific to one architecture or
+quantization scheme. Not included in the 9-point calibration set for
+the same reason `Josiefied-Qwen3.5-0.8B` isn't (see item 7).

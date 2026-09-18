@@ -282,6 +282,48 @@ def _bailing_is_global_layers(c: dict, layers: int) -> Optional[list]:
     return [(i + 1) % group_size == 0 or i >= cutoff for i in range(layers)]
 
 
+def _is_pure_ssm_architecture(c: dict, hidden: int, heads) -> bool:
+    """True when this config has NO attention heads at all and one of
+    the known SSM/linear-attention layer formulas matches -- i.e. every
+    layer is that mixer type, not a hybrid mixing attention with it.
+    Needed because the generic layer_kinds detection below otherwise
+    falls back to "full" (ordinary attention) for any config lacking a
+    `layer_types` list, `sliding_window`, or bailing's `layer_group_size`
+    -- correct for a plain transformer, wrong for classic (non-hybrid)
+    Mamba-family configs (`model_type` "mamba"/"falcon_mamba"), which
+    have no attention fields at all to even build a real q/k/v/o formula
+    from. Confirmed on a real cached `mamba-130m-hf-bf16` config: without
+    this, every layer was priced as a generic 4*hidden*hidden dense-
+    attention block, inflating this real ~130M-param model's total
+    estimate to 218.8M (+68%)."""
+    if heads:
+        return False
+    return (
+        _gated_delta_net_params(c, hidden) is not None
+        or _mamba2_ssm_params(c, hidden) is not None
+        or _lfm2_conv_params(c, hidden) is not None
+        or _mamba_ssm_params(c, hidden) is not None
+    )
+
+
+def _pure_ssm_has_no_separate_mlp(c: dict, hidden: int, heads) -> bool:
+    """Narrower than _is_pure_ssm_architecture above: true only for
+    architectures VERIFIED (by reading mlx_lm source directly) to have
+    NO separate per-layer MLP at all when used standalone -- classic
+    Mamba-1 (mlx_lm.models.mamba.ResidualBlock has only a mixer and a
+    norm) and Mamba-2 used the same way. GatedDeltaNet
+    (mlx_lm.models.qwen3_next.Qwen3NextDecoderLayer) and LFM2's ShortConv
+    (mlx_lm.models.lfm2_moe.Lfm2DecoderLayer) are confirmed to always
+    pair their mixer with a separate MLP even in an all-SSM architecture,
+    so they must NOT be included here even though they DO belong in
+    _is_pure_ssm_architecture above for layer-kind (no-growing-KV-cache)
+    classification -- conflating the two undercounted a synthetic
+    all-GatedDeltaNet config's real per-layer MLP in testing."""
+    if heads:
+        return False
+    return _mamba2_ssm_params(c, hidden) is not None or _mamba_ssm_params(c, hidden) is not None
+
+
 def _ssm_layer_params(c: dict, hidden: int, fallback: float) -> float:
     """Best-available SSM/hybrid-layer weight param count: a real layer
     implementation's exact formula if the config has the fields for one,
@@ -406,7 +448,7 @@ def _nemotron_h_estimate(config: dict) -> Optional[dict]:
             kv_elems_per_token = kv
             n_full_attn_layers += 1
 
-    total_params += 2 * vocab * hidden
+    total_params += _embedding_multiplier(config) * vocab * hidden
     active_params += vocab * hidden
 
     return {
@@ -524,7 +566,7 @@ def _gemma4_estimate(config: dict) -> Optional[dict]:
         total_params += attn + mlp_total + per_layer_params
         active_params += attn + mlp_active + per_layer_params
 
-    total_params += 2 * vocab * hidden
+    total_params += _embedding_multiplier(config) * vocab * hidden
     active_params += vocab * hidden
 
     return {
@@ -573,6 +615,7 @@ class ArchProfile:
     n_full_attn_layers: int  # KV cache grows unbounded with context
     n_sliding_attn_layers: int  # KV cache capped at sliding_window
     n_ssm_layers: int  # no growing KV cache at all (Mamba/SSM/linear-attention)
+    is_pure_ssm: bool  # every layer is JUST the mixer, no separate per-layer MLP at all
     sliding_window: Optional[int]
     n_experts: int
     experts_per_tok: int
@@ -659,8 +702,21 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
         # sliding_window is declared at all, the common case (Mistral-style)
         # is that every layer uses it uniformly.
         layer_kinds = ["sliding"] * layers
+    elif _is_pure_ssm_architecture(c, hidden, heads):
+        # A non-hybrid SSM model (see _is_pure_ssm_architecture) -- every
+        # layer is the mixer type, not a mix of attention and it.
+        layer_kinds = ["ssm"] * layers
     else:
         layer_kinds = ["full"] * layers
+
+    # Real mlx_lm.models.mamba.ResidualBlock has ONLY a mixer and a norm
+    # -- no separate MLP at all (the mixer's own in_proj, expanded to
+    # 2*d_inner, already does what a transformer's attention+MLP pair
+    # does). GatedDeltaNet/LFM2-style hybrid SSM layers DO each still
+    # have their own separate MLP alongside the mixer (confirmed reading
+    # qwen3_next.py/lfm2_moe.py) -- this only applies to a genuinely
+    # pure, single-mixer-type architecture like classic Mamba-1.
+    is_pure_ssm = layer_kinds == ["ssm"] * layers and _pure_ssm_has_no_separate_mlp(c, hidden, heads)
 
     n_ssm_layers = layer_kinds.count("ssm")
     n_sliding_attn_layers = layer_kinds.count("sliding")
@@ -751,6 +807,7 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
         n_full_attn_layers=n_full_attn_layers,
         n_sliding_attn_layers=n_sliding_attn_layers,
         n_ssm_layers=n_ssm_layers,
+        is_pure_ssm=is_pure_ssm,
         sliding_window=sliding_window,
         n_experts=n_experts,
         experts_per_tok=experts_per_tok,
@@ -786,11 +843,39 @@ def estimate_total_params(config: dict) -> Optional[int]:
     moe_mask = a.moe_layer_mask or [False] * a.layers
     for i in range(a.layers):
         mixer = a.ssm_weight_params_per_layer if a.layer_kinds[i] == "ssm" else a.attn_weight_params_per_layer
-        mlp = (a.mlp_moe_total_params + a.router_params_per_moe_layer) if moe_mask[i] else a.mlp_dense_params
+        if a.is_pure_ssm:
+            mlp = 0.0  # classic Mamba's mixer IS the whole layer -- see ArchProfile.is_pure_ssm
+        else:
+            mlp = (a.mlp_moe_total_params + a.router_params_per_moe_layer) if moe_mask[i] else a.mlp_dense_params
         total += mixer + mlp
 
-    total += 2 * a.vocab * a.hidden  # embedding + lm_head, worst case untied
+    total += _embedding_multiplier(config) * a.vocab * a.hidden  # embedding (+ lm_head, if untied)
     return int(total)
+
+
+# model_types that always tie input/output embeddings by hardcoded
+# architectural convention, confirmed on a real cached repo's own
+# safetensors index (mlx-community/mamba-130m-hf-bf16 has only
+# `backbone.embeddings.weight`, no separate lm_head weight at all) even
+# though its config.json has no `tie_word_embeddings` field to read.
+_ALWAYS_TIED_MODEL_TYPES = {"mamba", "falcon_mamba"}
+
+
+def _embedding_multiplier(config: dict) -> int:
+    """1 if input/output embeddings are tied (one matrix does both
+    jobs), 2 if they're separate -- an explicit `tie_word_embeddings`
+    field wins when present; otherwise a small hardcoded list covers
+    architectures known to always tie regardless of what config.json
+    says. Untied (2) is the default for everything else, unchanged from
+    before this existed, since guessing tied without evidence would risk
+    UNDER-counting RAM for the (more common) untied case."""
+    c = config.get("text_config", config)
+    tie = config.get("tie_word_embeddings")
+    if tie is None:
+        tie = c.get("tie_word_embeddings")
+    if tie is None:
+        tie = (config.get("model_type") or c.get("model_type")) in _ALWAYS_TIED_MODEL_TYPES
+    return 1 if tie else 2
 
 
 def estimate_bytes(config: dict) -> Optional[int]:
@@ -804,10 +889,12 @@ def estimate_bytes(config: dict) -> Optional[int]:
     embed_bits = _effective_bits(config, path_hint="embed_tokens")
     lm_head_bits = _effective_bits(config, path_hint="lm_head")
 
-    weight_params = estimate_total_params(config) - 2 * a.vocab * a.hidden
+    multiplier = _embedding_multiplier(config)
+    weight_params = estimate_total_params(config) - multiplier * a.vocab * a.hidden
     total_bytes = weight_params * bits / 8
     total_bytes += a.vocab * a.hidden * embed_bits / 8
-    total_bytes += a.vocab * a.hidden * lm_head_bits / 8
+    if multiplier == 2:
+        total_bytes += a.vocab * a.hidden * lm_head_bits / 8
     return int(total_bytes)
 
 
@@ -883,7 +970,9 @@ def estimate_active_bytes_per_token(config: dict, context_length: int = 128) -> 
     moe_mask = a.moe_layer_mask or [False] * a.layers
     for i in range(a.layers):
         mixer = a.ssm_weight_params_per_layer if a.layer_kinds[i] == "ssm" else a.attn_weight_params_per_layer
-        if moe_mask[i]:
+        if a.is_pure_ssm:
+            active_params += mixer  # classic Mamba's mixer IS the whole layer -- see ArchProfile.is_pure_ssm
+        elif moe_mask[i]:
             active_params += mixer + a.router_params_per_moe_layer
             active_moe_bytes += a.routed_active_params_per_layer * routed_bits / 8
             active_moe_bytes += a.shared_active_params_per_layer * shared_bits / 8
