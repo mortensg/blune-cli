@@ -326,7 +326,13 @@ models that were previously well-fit.
 This is not new-point noise -- it's the same failure mode already
 flagged for `Huihui-LFM2.5-1.2B` (also small/fast/dense-hybrid, also the
 worst-fit point even before this addition), now confirmed on a second,
-even smaller/faster model. **A single global `BASE_OVERHEAD_SEC` cannot
+even smaller/faster model. **UPDATE (see item 10): `Huihui-LFM2.5-1.2B`
+turned out NOT to be an instance of this after all** -- it had a real,
+unrelated, fixable MLP-width bug instead. The reasoning immediately
+below about `Josiefied-Qwen3.5-0.8B` (and later `mamba-130m`, item 9)
+still stands on its own; only the specific claim that LFM2.5-1.2B was a
+second example of the same phenomenon was wrong. **A single global
+`BASE_OVERHEAD_SEC` cannot
 be simultaneously right for models this fast (where fixed overhead is a
 large fraction of total decode time) and for the 7B-35B range the rest
 of the calibration set covers.** The 10-point refit's constants were
@@ -451,13 +457,63 @@ of tying.
 **Speed-formula result:** even with both weight-count bugs fixed,
 `probe_formula.py` still predicts this model at +74.6% error (real 490.8
 tok/s over 5 trials, std 0.49%; formula predicts 856.9). This is NOT a
-new problem -- it's a third, independent confirmation of item 7's
-already-documented "small/fast models don't fit the same global
-fixed-overhead term" finding (previously seen on `Huihui-LFM2.5-1.2B`
-and `Josiefied-Qwen3.5-0.8B`), now reproduced on a completely different
+new problem -- it's a second, independent confirmation of item 7's
+"small/fast models don't fit the same global fixed-overhead term"
+finding (previously seen only on `Josiefied-Qwen3.5-0.8B` -- see item 10
+below for why `Huihui-LFM2.5-1.2B` turned out NOT to actually be an
+instance of this after all), now reproduced on a completely different
 architecture family (classic Mamba, not GatedDeltaNet) and a completely
 different quantization state (unquantized bf16, not 4/8-bit) --
-strengthening the case that this is a general property of very fast/
-small models rather than something specific to one architecture or
-quantization scheme. Not included in the 9-point calibration set for
-the same reason `Josiefied-Qwen3.5-0.8B` isn't (see item 7).
+strengthening the case that this really is a property of very fast (>300
+tok/s) models specifically, not one architecture or quantization scheme.
+Not included in the 9-point calibration set for the same reason
+`Josiefied-Qwen3.5-0.8B` isn't (see item 7).
+
+## 10. LFM2's `block_auto_adjust_ff_dim`: real MLP width is 50% smaller than declared -- RESOLVED, single most impactful fix found
+
+`Huihui-LFM2.5-1.2B-Instruct-abliterated-8bit` had been this
+calibration set's worst-or-near-worst point across every refit in this
+entire investigation (-14.3% to -23.3% depending which other fixes were
+already in place), and was written off in item 7 and in
+`probe_formula.py`'s own docstring as a third instance of the
+"small/fast model breaks the global fixed-overhead term" problem. It
+was not. Reading `mlx_lm/models/lfm2.py`'s `MLP.__init__` directly found
+a real, previously-missed bug: this architecture declares
+`intermediate_size`/`block_ff_dim` = 12288 in config.json, but the real
+model does NOT use that value directly when `block_auto_adjust_ff_dim`
+is set (true in this real cached config) -- it recomputes a LLaMA-style
+SwiGLU width from it:
+
+    ff_dim = int(2 * block_ff_dim / 3)               # 12288 -> 8192
+    ff_dim = int(block_ffn_dim_multiplier * ff_dim)   # if set (1.0 here, no-op)
+    ff_dim = block_multiple_of * ceil(ff_dim / block_multiple_of)  # round up
+
+landing on a REAL matrix width of 8192, not the declared 12288 --
+`size_estimate.py`'s generic formula, which just read `intermediate_size`
+directly, overcounted this architecture's entire dense-MLP byte budget
+by 50%. Confirmed this only affects the DENSE `lfm2` model_type
+specifically: `lfm2_moe.py`'s `MLP` class (used by `LFM2-8B-A1B`, a
+different real calibration point) takes `intermediate_size` directly
+with no such recompute at all, read directly to confirm before scoping
+the fix narrowly. Implemented as `_lfm2_dense_mlp_width()` in
+`size_estimate.py`, gated on `model_type == "lfm2"`.
+
+Effect, after a full 9-point refit: `Huihui-LFM2.5-1.2B`'s own error
+dropped from -14.3% to **-2.2%**, and the whole calibration set's mean
+error dropped from 5.9% to **2.7%** (max 19.8% -> **6.3%**) -- every
+single point in the 9-point set now sits within 6.3% of real, the
+tightest this project's formula has ever been, and the first time it has
+landed at or inside the "97% accuracy" (3% error) question that started
+the whole `mlx-97-percent-research-prompt.md` investigation (on this
+in-sample set -- not yet independently confirmed against new held-out
+ground truth beyond what's already in this document).
+
+**The general lesson, worth restating:** a persistently bad-fit point
+that already has a plausible-sounding explanation (here, "it's just a
+small/fast model, same as two other real ground-truth points") should
+still be re-suspected for an actual bug via a direct source read before
+being accepted as an inherent modeling limit -- especially when, in
+hindsight, the "explanation" was pattern-matching on the wrong shared
+property (LFM2.5-1.2B's real decode speed, 176.6 tok/s, was never
+actually in the same regime as the two genuinely fast points, 339.7 and
+490.8 tok/s, that the pattern was drawn from).

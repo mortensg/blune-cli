@@ -4,6 +4,7 @@ from blune_cli.size_estimate import (
     _gated_delta_net_params,
     _gemma4_estimate,
     _lfm2_conv_params,
+    _lfm2_dense_mlp_width,
     _mamba2_ssm_params,
     _mamba_ssm_params,
     _mla_weight_params,
@@ -720,3 +721,45 @@ def test_tied_embeddings_not_double_counted():
     untied_total = estimate_total_params(_mamba1_config(tie_word_embeddings=False))
     hidden, vocab = 768, 50280
     assert untied_total - tied_total == hidden * vocab
+
+
+def test_lfm2_auto_adjust_ff_dim_uses_real_recomputed_width():
+    """Regression test for this project's single most impactful fix:
+    real cached Huihui-LFM2.5-1.2B-Instruct-abliterated-8bit config
+    declares intermediate_size/block_ff_dim=12288, but
+    mlx_lm.models.lfm2.MLP.__init__ does NOT use that directly when
+    block_auto_adjust_ff_dim is set -- it recomputes a LLaMA-style
+    SwiGLU width (2/3 scaling, optional multiplier, rounded up to
+    block_multiple_of), landing on a real width of 8192. Using 12288
+    directly overcounted this architecture's dense MLP bytes by 50%,
+    and was long mistaken for an inherent 'small/fast model' modeling
+    limit rather than a fixable bug (see probe_formula.py's docstring)."""
+    config = {
+        "model_type": "lfm2",
+        "block_ff_dim": 12288,
+        "block_multiple_of": 256,
+        "block_ffn_dim_multiplier": 1.0,
+        "block_auto_adjust_ff_dim": True,
+    }
+    assert _lfm2_dense_mlp_width(config) == 8192
+
+
+def test_lfm2_moe_variant_not_affected_by_auto_adjust():
+    """lfm2_moe.py's MLP class takes intermediate_size directly with no
+    such recompute (confirmed reading its source) -- this must only
+    apply to the dense `lfm2` model_type, not `lfm2_moe`, even if the
+    latter somehow also set block_auto_adjust_ff_dim."""
+    config = {
+        "model_type": "lfm2_moe",
+        "block_ff_dim": 12288,
+        "block_multiple_of": 256,
+        "block_auto_adjust_ff_dim": True,
+    }
+    assert _lfm2_dense_mlp_width(config) is None
+
+
+def test_lfm2_dense_mlp_width_none_without_auto_adjust_flag():
+    """No recompute should happen for an lfm2 config that doesn't set
+    block_auto_adjust_ff_dim -- the declared width is already real."""
+    config = {"model_type": "lfm2", "block_ff_dim": 8192, "intermediate_size": 8192}
+    assert _lfm2_dense_mlp_width(config) is None

@@ -227,6 +227,33 @@ def _mamba2_ssm_params(c: dict, hidden: int) -> Optional[float]:
     return in_proj + conv1d + out_proj
 
 
+def _lfm2_dense_mlp_width(c: dict) -> Optional[int]:
+    """Real dense-MLP feed-forward width for LFM2's dense (non-MoE)
+    architecture -- matching mlx_lm.models.lfm2.MLP.__init__ EXACTLY,
+    which does NOT use `block_ff_dim`/`intermediate_size` directly when
+    `block_auto_adjust_ff_dim` is set: it recomputes a LLaMA-style
+    SwiGLU width (2/3 scaling, optional multiplier, rounded up to
+    `block_multiple_of`) from `block_ff_dim` as just a starting point.
+    Confirmed on a real cached Huihui-LFM2.5-1.2B-Instruct-abliterated-
+    8bit config: declared `intermediate_size`/`block_ff_dim`=12288, but
+    the real matrix width mlx-lm actually builds is 8192 -- using 12288
+    directly overcounted this architecture's dense MLP bytes by 50%.
+    Only applies to `model_type == "lfm2"` (the dense variant) --
+    `lfm2_moe.py`'s MLP class takes `intermediate_size` directly with no
+    such recompute, confirmed reading its source too."""
+    if (c.get("model_type") or "") != "lfm2" or not c.get("block_auto_adjust_ff_dim"):
+        return None
+    ff_dim = c.get("block_ff_dim") or c.get("intermediate_size")
+    multiple_of = c.get("block_multiple_of")
+    if not ff_dim or not multiple_of:
+        return None
+    ff_dim = int(2 * ff_dim / 3)
+    multiplier = c.get("block_ffn_dim_multiplier")
+    if multiplier is not None:
+        ff_dim = int(multiplier * ff_dim)
+    return multiple_of * ((ff_dim + multiple_of - 1) // multiple_of)
+
+
 def _lfm2_conv_params(c: dict, hidden: int) -> Optional[float]:
     """Exact param count for LFM2's ShortConv block, matching
     mlx_lm.models.lfm2.ShortConv's real __init__ -- NOT a state-space
@@ -780,7 +807,7 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
         mlp_moe_total_params = 0.0
         router_params_per_moe_layer = 0.0
 
-    dense_inter = c.get("intermediate_size") or 4 * hidden
+    dense_inter = _lfm2_dense_mlp_width(c) or c.get("intermediate_size") or 4 * hidden
     mlp_dense_params = 3 * hidden * dense_inter
 
     # DeepSeek-style: first_k_dense_replace layers (and every moe_layer_freq-th
