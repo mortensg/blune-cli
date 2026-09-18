@@ -228,6 +228,119 @@ def _mla_weight_params(c: dict, hidden: int, heads: int) -> Optional[float]:
     return q_params + kv_a_proj + kv_b_proj + o_proj
 
 
+def _nemotron_h_component(char: str, c: dict, hidden: int) -> tuple:
+    """(total_params, active_params, kv_elems_per_token) for ONE
+    Nemotron-H single-component layer, matching mlx_lm.models.nemotron_h
+    exactly: 'M' Mamba-2 mixer, '*' attention, '-' a plain 2-matrix
+    up/down MLP (ReLU2 activation, NOT SwiGLU -- no gate_proj, verified
+    against NemotronHMLP directly), 'E' a MoE block (router weight matrix
+    + SwitchMLP routed experts, also 2-matrix per expert + optional
+    always-on shared expert sized by moe_shared_expert_intermediate_size,
+    computed on the pre-latent-projection residual + optional
+    fc1/fc2 latent-projection wrap for Nemotron-3-Super's LatentMoE).
+    Unlike every other architecture this module handles, a Nemotron-H
+    layer is EITHER a mixer OR an FFN/MoE block, never both."""
+    if char == "M":
+        p = _mamba2_ssm_params(c, hidden) or 0.0
+        return p, p, 0.0
+    if char == "*":
+        heads = c.get("num_attention_heads")
+        kv_heads = c.get("num_key_value_heads") or heads
+        head_dim = c.get("head_dim") or (hidden // heads if heads else None)
+        if heads and kv_heads and head_dim:
+            p = 2 * hidden * (heads * head_dim) + 2 * hidden * (kv_heads * head_dim)
+            kv = 2 * kv_heads * head_dim
+        else:
+            p = 4 * hidden * hidden
+            kv = 2 * hidden
+        return p, p, kv
+    if char == "-":
+        inter = c.get("intermediate_size") or 4 * hidden
+        p = 2 * hidden * inter  # up_proj + down_proj only -- no gate_proj
+        return p, p, 0.0
+    if char == "E":
+        n_experts = c.get("n_routed_experts") or 0
+        experts_per_tok = c.get("num_experts_per_tok") or 1
+        moe_inter = c.get("moe_intermediate_size") or c.get("intermediate_size") or 4 * hidden
+        moe_latent = c.get("moe_latent_size")
+        expert_input_dim = moe_latent or hidden
+
+        router = hidden * n_experts
+        latent_wrap = (hidden * moe_latent + moe_latent * hidden) if moe_latent else 0.0
+        expert_unit = 2 * expert_input_dim * moe_inter  # SwitchMLP: fc1 + fc2, no gate
+
+        n_shared = c.get("n_shared_experts")
+        shared_inter = c.get("moe_shared_expert_intermediate_size")
+        # Shared expert runs on the pre-latent residual (hidden), not the
+        # latent-projected dim, even when moe_latent_size is set.
+        shared = 2 * hidden * shared_inter if (n_shared is not None and shared_inter) else 0.0
+
+        total = router + latent_wrap + n_experts * expert_unit + shared
+        active = router + latent_wrap + experts_per_tok * expert_unit + shared
+        return total, active, 0.0
+    return 0.0, 0.0, 0.0  # unrecognized pattern char: fail open, not crash
+
+
+def _nemotron_h_estimate(config: dict) -> Optional[dict]:
+    """Dedicated estimator for Nemotron-H-style single-component-per-layer
+    architectures -- bypasses the generic mixer+MLP-per-layer loop
+    entirely, since forcing this architecture through it double-counts
+    every MLP-only/MoE-only layer (it has no separate mixer at all: a
+    real Nemotron-H config previously estimated at 103.1B for a model
+    named "30B" because of this). Detected via hybrid_override_pattern,
+    a single character per layer ('M'/'*'/'-'/'E')."""
+    c = config.get("text_config", config)
+    pattern = c.get("hybrid_override_pattern")
+    if not isinstance(pattern, str) or not pattern:
+        return None
+    hidden = c.get("hidden_size")
+    if not hidden:
+        return None
+    vocab = c.get("vocab_size") or config.get("vocab_size") or 0
+
+    total_params = active_params = kv_elems_per_token = 0.0
+    n_full_attn_layers = 0
+    for ch in pattern:
+        t, a, kv = _nemotron_h_component(ch, c, hidden)
+        total_params += t
+        active_params += a
+        if kv:
+            kv_elems_per_token = kv
+            n_full_attn_layers += 1
+
+    total_params += 2 * vocab * hidden
+    active_params += vocab * hidden
+
+    return {
+        "total_params": total_params,
+        "active_params": active_params,
+        "kv_elems_per_token": kv_elems_per_token,
+        "n_full_attn_layers": n_full_attn_layers,
+    }
+
+
+def _dsa_indexer_params(c: dict, hidden: int) -> Optional[float]:
+    """Exact param count for GLM's Dynamic Sparse Attention indexer
+    (glm_moe_dsa), matching mlx_lm.models.deepseek_v32.Indexer's real
+    __init__ (wq_b, wk, weights_proj). glm_moe_dsa.py is a thin subclass
+    of deepseek_v32.py's Model with NO per-layer sharing logic --
+    despite config.json's indexer_types marking most layers "shared",
+    mlx-lm 0.31.3 actually instantiates a full Indexer on every MLA
+    layer regardless, so this is added unconditionally per MLA layer,
+    not gated on indexer_types' full/shared split."""
+    q_lora = c.get("q_lora_rank")
+    index_heads = c.get("index_n_heads")
+    index_head_dim = c.get("index_head_dim")
+    if not all([q_lora, index_heads, index_head_dim]):
+        return None
+
+    wq_b = q_lora * (index_heads * index_head_dim)
+    wk = hidden * index_head_dim
+    weights_proj = hidden * index_heads
+
+    return wq_b + wk + weights_proj
+
+
 @dataclass
 class ArchProfile:
     hidden: int
@@ -284,6 +397,9 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
         mla_params = _mla_weight_params(c, hidden, heads)
         if mla_params is not None:
             attn_weight_params_per_layer = mla_params
+        indexer_params = _dsa_indexer_params(c, hidden)
+        if indexer_params is not None:
+            attn_weight_params_per_layer += indexer_params
 
     if is_mla:
         # MLA caches only the compressed latent + decoupled RoPE key per
@@ -415,6 +531,10 @@ def estimate_total_params(config: dict) -> Optional[int]:
     few are active per token), router weights, and correctly splits
     dense-MLP vs. MoE-MLP layers where the config declares interleaving
     (first_k_dense_replace)."""
+    nemotron = _nemotron_h_estimate(config)
+    if nemotron is not None:
+        return int(nemotron["total_params"])
+
     a = _analyze(config)
     if a is None:
         return None
@@ -469,6 +589,14 @@ def estimate_active_bytes_per_token(config: dict, context_length: int = 128) -> 
     probe_formula.py) -- pass a larger value to see how a specific model
     degrades at long context.
     """
+    nemotron = _nemotron_h_estimate(config)
+    if nemotron is not None:
+        bits = _infer_bits(config)
+        active_weight_bytes = nemotron["active_params"] * bits / 8
+        kv_bytes_per_layer = nemotron["kv_elems_per_token"] * _KV_CACHE_BYTES_PER_ELEM
+        kv_bytes = nemotron["n_full_attn_layers"] * kv_bytes_per_layer * context_length
+        return int(active_weight_bytes + kv_bytes)
+
     a = _analyze(config)
     if a is None:
         return None
@@ -509,6 +637,11 @@ def estimate_kv_bytes_per_token(config: dict, context_length: int = 128) -> Opti
     exposed separately since it's the term that changes with context
     length (weight bytes don't). Also equals the KV-cache's total memory
     footprint at that context length -- see _kv_bytes."""
+    nemotron = _nemotron_h_estimate(config)
+    if nemotron is not None:
+        kv_bytes_per_layer = nemotron["kv_elems_per_token"] * _KV_CACHE_BYTES_PER_ELEM
+        return int(nemotron["n_full_attn_layers"] * kv_bytes_per_layer * context_length)
+
     a = _analyze(config)
     if a is None:
         return None

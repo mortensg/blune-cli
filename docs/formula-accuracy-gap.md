@@ -144,6 +144,50 @@ cached configs -- and several didn't match:
   `glm_moe_dsa`'s sparse-indexer pattern than to V3's MLA. Left
   unimplemented rather than guess.
 
+## Update: Nemotron-H's single-component structure, now implemented
+
+A third research pass focused specifically on the two biggest documented
+gaps from the last round: Nemotron-H's structure and DeepSeek-V4/GLM's
+sparse-indexer models. Both were cross-checked against real mlx-lm
+source (available locally) before implementing.
+
+**Nemotron-H (`_nemotron_h_estimate`)**: confirmed by reading
+`nemotron_h.py` directly -- a Nemotron-H layer is *either* a Mamba-2
+mixer, an attention block, a plain 2-matrix MLP (`up_proj`/`down_proj`
+with ReLU², **not** SwiGLU's 3-matrix gate/up/down -- a real, separate
+discovery), *or* a MoE block, selected per-layer by a single character
+in `hybrid_override_pattern` (`M`/`*`/`-`/`E`) -- never a mixer *plus* a
+separate FFN the way every other architecture in this file works.
+Added a dedicated estimator that parses this pattern directly instead
+of forcing it through the generic per-layer loop. Effect on a real
+config: **103.1B → 31.6B**, against a model named "30B-A3B" -- from
+3.4x too high to within 5%.
+
+**GLM's DSA indexer (`_dsa_indexer_params`)**: confirmed by reading
+`deepseek_v32.py` (which `glm_moe_dsa.py` is a thin, unmodified subclass
+of) that mlx-lm 0.31.3 does **not** implement the "IndexShare" weight-
+sharing the earlier research described -- `glm_moe_dsa.py`'s `ModelArgs`
+doesn't even declare an `indexer_types` field, so every MLA layer gets
+its own full `Indexer` (`wq_b`/`wk`/`weights_proj`) regardless of what
+config.json's `indexer_types` list says. Added the indexer's weight
+params to every MLA layer unconditionally, matching what mlx-lm
+actually builds (not what the checkpoint format nominally supports).
+
+**Still not implemented**: DeepSeek-V4's grouped output projection +
+query LoRA + indexer combination (the research's formula for
+`P_grouped_out`/`P_core_kv` wasn't precise enough to implement with
+confidence, and DeepSeek-V4's real structure differs enough from V3
+that guessing felt riskier than leaving it as a known gap); the
+roofline-style multi-term efficiency model (`η_weights`, `η_kv`,
+`η_state` as separate degradation curves) proposed as a Phase 4
+replacement for the current 2-constant linear fit -- a much larger
+change that needs real Level-1 measurements across several more
+architectures to calibrate honestly, not just a formula rewrite;
+`probe_mlx.py`'s own ~15-19% synthetic-probe deficit (subnormal-float
+handling, quantized-kernel dispatch, warmup depth) -- a separate,
+substantial investigation into MLX runtime behavior, not a
+config-formula change.
+
 ## What this means for further research
 
 1. **Highest-value next step, unchanged**: get real level-1 measurements

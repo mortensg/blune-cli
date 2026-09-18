@@ -1,10 +1,12 @@
 from blune_cli.size_estimate import (
     _analyze,
+    _dsa_indexer_params,
     _gated_delta_net_params,
     _lfm2_conv_params,
     _mamba2_ssm_params,
     _mamba_ssm_params,
     _mla_weight_params,
+    _nemotron_h_estimate,
     estimate_active_bytes_per_token,
     estimate_bytes,
     estimate_kv_bytes_per_token,
@@ -404,6 +406,64 @@ def test_deepseek_v3_total_params_matches_published_671b():
     }
     total_b = estimate_total_params(config) / 1e9
     assert 655 < total_b < 690, f"expected close to the real 671B, got {total_b:.1f}B"
+
+
+def test_nemotron_h_single_component_layers_not_double_counted():
+    """Regression test for the biggest gap found in this module: a
+    Nemotron-H layer is EITHER a Mamba-2 mixer, attention, a plain MLP,
+    or a MoE block -- never a mixer PLUS an MLP the way every other
+    architecture here works. Forcing it through the generic per-layer
+    loop double-counted every MLP-only/MoE-only layer and estimated a
+    real config (named 30B-A3B) at 103.1B. The dedicated estimator
+    should land close to the real ~30B name instead."""
+    config = {
+        "hidden_size": 2688,
+        "hybrid_override_pattern": "ME" * 20 + "*" * 6 + "E" * 6,  # 52 layers total
+        "vocab_size": 131072,
+        "num_attention_heads": 32,
+        "num_key_value_heads": 2,
+        "head_dim": 128,
+        "mamba_num_heads": 64,
+        "mamba_head_dim": 64,
+        "ssm_state_size": 128,
+        "conv_kernel": 4,
+        "n_groups": 8,
+        "mamba_proj_bias": False,
+        "use_conv_bias": True,
+        "n_routed_experts": 128,
+        "num_experts_per_tok": 6,
+        "moe_intermediate_size": 1856,
+        "n_shared_experts": 1,
+        "moe_shared_expert_intermediate_size": 3712,
+        "intermediate_size": 1856,
+    }
+    result = _nemotron_h_estimate(config)
+    assert result is not None
+    total_b = result["total_params"] / 1e9
+    assert 15 < total_b < 45, f"expected roughly 30B-ish, got {total_b:.1f}B"
+
+
+def test_nemotron_h_not_detected_without_hybrid_override_pattern():
+    """A standard mixer+MLP architecture must NOT be routed through the
+    Nemotron-H single-component path just because it happens to share a
+    field name."""
+    assert _nemotron_h_estimate({"hidden_size": 2048, "num_hidden_layers": 12}) is None
+
+
+def test_dsa_indexer_matches_real_mlx_lm_layer():
+    """Exact param count check against mlx_lm.models.deepseek_v32's real
+    Indexer.__init__ (wq_b, wk, weights_proj) -- glm_moe_dsa.py is a
+    thin subclass with no per-layer sharing logic, so mlx-lm 0.31.3
+    actually builds this on every MLA layer regardless of what
+    config.json's indexer_types says."""
+    c = {"q_lora_rank": 2048, "index_n_heads": 32, "index_head_dim": 128}
+    hidden = 6144
+    expected = (
+        2048 * (32 * 128)  # wq_b
+        + hidden * 128  # wk
+        + hidden * 32  # weights_proj
+    )
+    assert _dsa_indexer_params(c, hidden) == expected
 
 
 def test_fits_in_ram_true_for_small_model():
