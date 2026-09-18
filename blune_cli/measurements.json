@@ -49,6 +49,27 @@
       "machine": "m4_pro_48gb",
       "real_decode_tps": 53.0,
       "notes": "single-stream, tool-calling enabled via --tool-call-parser openai"
+    },
+    {
+      "repo_id": "mlx-community/Huihui-LFM2.5-1.2B-Instruct-abliterated-8bit",
+      "library": "mlx",
+      "machine": "m4_pro_48gb",
+      "real_decode_tps": 176.6,
+      "notes": "dense LFM2 hybrid (10 ShortConv layers + 6 attention layers, 16 total), via mlx_lm.generate, 20 prompt + 71 generated tokens"
+    },
+    {
+      "repo_id": "mlx-community/LFM2-8B-A1B-3bit-MLX",
+      "library": "mlx",
+      "machine": "m4_pro_48gb",
+      "real_decode_tps": 192.1,
+      "notes": "LFM2 MoE hybrid (ShortConv + attention + routed experts), via mlx_lm.generate, 20 prompt + 120 generated tokens"
+    },
+    {
+      "repo_id": "mlx-community/granite-4.0-h-tiny-6bit-MLX",
+      "library": "mlx",
+      "machine": "m4_pro_48gb",
+      "real_decode_tps": 116.9,
+      "notes": "IBM Granite hybrid (Mamba-2 + attention + MoE), via mlx_lm.generate, 19 prompt + 107 generated tokens"
     }
   ]
 }

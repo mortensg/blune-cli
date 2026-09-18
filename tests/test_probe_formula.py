@@ -49,3 +49,22 @@ def test_longer_context_reduces_estimated_speed():
     short_ctx = probe("x", config, M4_PRO_BANDWIDTH_GBS, context_length=128)
     long_ctx = probe("x", config, M4_PRO_BANDWIDTH_GBS, context_length=32_000)
     assert long_ctx["estimated_real_tps"] < short_ctx["estimated_real_tps"]
+
+
+def test_hybrid_architecture_gets_low_confidence():
+    """Regression test: 3 real downloaded-and-measured hybrid models
+    (LFM2.5-1.2B, LFM2-8B-A1B, granite-4.0-h-tiny -- see
+    measurements.json) showed this formula under-predicting speed by
+    20-53% versus real generation. A heavily SSM/conv architecture
+    should be flagged low-confidence, not silently returned as if it
+    were as trustworthy as the conventional-architecture estimate."""
+    config = config_cache.get_config("mlx-community/granite-4.0-h-tiny-6bit-MLX", offline=True)
+    result = probe("x", config, M4_PRO_BANDWIDTH_GBS)
+    assert "low" in result["confidence"]
+    assert "hybrid" in result["confidence"]
+
+
+def test_conventional_architecture_keeps_medium_confidence():
+    config = config_cache.get_config("mlx-community/Qwen2.5-Coder-7B-Instruct-4bit", offline=True)
+    result = probe("x", config, M4_PRO_BANDWIDTH_GBS)
+    assert "medium" in result["confidence"]

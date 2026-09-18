@@ -188,6 +188,52 @@ handling, quantized-kernel dispatch, warmup depth) -- a separate,
 substantial investigation into MLX runtime behavior, not a
 config-formula change.
 
+## Update: real Level-1 data finally acquired for hybrid architectures
+
+Every research round above ended with "the highest-value next step is
+real measurements for hybrid/MLA/etc. architectures." This is that step:
+3 hybrid models were actually downloaded and run for real (not DeepSeek,
+by request) via `mlx_lm.generate` on the same M4 Pro/48GB machine:
+
+| Model | Real tok/s | probe_mlx.py (zero-download) | probe_formula.py |
+|---|---|---|---|
+| LFM2.5-1.2B-Instruct-abliterated-8bit | 176.6 | 189.0 (+7.0%) | 83.2 (**-52.9%**) |
+| LFM2-8B-A1B-3bit-MLX | 192.1 | 198.9 (+3.5%) | 107.1 (**-44.2%**) |
+| granite-4.0-h-tiny-6bit-MLX | 116.9 | 105.5 (-9.8%) | 93.2 (**-20.3%**) |
+
+Two clear, opposite conclusions:
+
+1. **`probe_mlx.py` generalizes well beyond its original calibration.**
+   All 3 land within its documented ~81-85%-of-real band despite none
+   of these architectures being part of its original validation set.
+   This is now real evidence, not just an assumption, that the
+   zero-download execution probe is broadly trustworthy across
+   architectures -- prefer it over the formula for hybrid/SSM models.
+2. **`probe_formula.py`'s fixed-overhead model does not generalize.**
+   Tried three different ways to rescue a single formula across all 8
+   points (refit ratio+overhead on all 8: 15.8% mean error, worse than
+   the original 5-point fit's 4.5%; overhead scaled per total layer
+   count: ranged 115-1131us/layer with no consistent constant across
+   the 8 models; overhead scaled per attention-layer count only: same
+   problem, no consistent constant). None of these are a real physical
+   decomposition -- they're curve-fitting attempts that failed, which
+   is itself the useful result: the additive-fixed-overhead assumption
+   is probably only valid for conventional attention+MoE graphs, and
+   hybrid SSM/conv graphs behave qualitatively differently (plausibly
+   because MLX's lazy-eval graph fusion behaves differently across
+   mixed operation types within one model -- see this project's own
+   much earlier "same real layer x N" graph-fusion finding for a
+   related mechanism). Rather than ship a worse-fitting universal
+   formula, the original 5-point-calibrated constants were left alone
+   and `probe_formula.probe()` now detects >20% SSM/conv layer share
+   and downgrades its own `confidence` field to `"low"` with an
+   explicit pointer to `probe_mlx.py` instead of silently returning an
+   estimate now known to be wrong by 20-53%.
+
+All 3 real measurements were added to `measurements.json`, so
+`blune test`/`sweep` now returns real measured numbers (not formula
+estimates) for these specific repos.
+
 ## What this means for further research
 
 1. **Highest-value next step, unchanged**: get real level-1 measurements

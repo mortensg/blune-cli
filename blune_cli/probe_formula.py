@@ -57,20 +57,44 @@ replacement for probe_mlx.py's real-execution probe when accuracy matters
 more than speed, and re-fit both constants if/when more real measurements
 across more architectures become available.
 
-Known remaining gap: on a hybrid Mamba/attention + MoE architecture
-outside this calibration set (Qwen3.6-35B-A3B family with GatedDeltaNet
-linear-attention layers), this formula still over-predicts by ~18-26%
-versus probe_mlx.py's own zero-download probe (itself not validated
-against a real download for that architecture). Root-caused to a
-per-architecture attention quirk (mlx_lm's Qwen3NextAttention doubles
-q_proj's output size) that doesn't generalize safely from config.json
-alone -- see docs/formula-accuracy-gap.md for the full investigation,
-including why a plausible-looking config-field heuristic for it was
-deliberately rejected after checking it would have broken Gemma4.
+Known scope limit, confirmed with real data (not just the probe-vs-probe
+comparison above): 3 real hybrid-architecture models were downloaded and
+measured (LFM2.5-1.2B, LFM2-8B-A1B, granite-4.0-h-tiny -- see
+measurements.json), and this formula under-predicts all three by
+20-53%, getting worse the more SSM/conv-heavy the model is. Multiple
+overhead models were tried against the combined 8-point set (a single
+refit ratio+overhead: 15.8% mean error, worse than the original 5-point
+fit's 4.5%; overhead scaled per-layer: ranged 115-1131us/layer, no
+consistent constant; overhead scaled per-attention-layer: same problem)
+-- none generalize. The additive-fixed-overhead model this formula is
+built on appears to be specific to conventional attention+MoE graphs;
+hybrid SSM/conv architectures behave qualitatively differently (plausibly
+because MLX's lazy-eval graph fusion behaves differently across mixed
+operation types -- see this project's own earlier "same real layer x N"
+graph-fusion finding). Rather than force a worse-fitting universal
+formula, BANDWIDTH_CALIBRATION_RATIO/FIXED_OVERHEAD_SEC stay scoped to
+their original 5-point fit; probe() checks for significant SSM/conv
+layer presence and lowers `confidence` accordingly instead of silently
+returning a number known to be unreliable.
+
+In contrast, the SAME 3 real hybrid measurements validated probe_mlx.py
+(the real zero-download execution probe) as reliable well beyond its
+original calibration scope: +7.0%, +3.5%, -9.8% -- comfortably within
+its documented ~81-85% ratio band, across architectures it was never
+specifically tuned for. For hybrid/SSM architectures, prefer
+probe_mlx.py over this formula until enough real data exists to
+calibrate a hybrid-specific overhead model.
 """
 from typing import Optional
 
-from .size_estimate import estimate_active_bytes_per_token
+from .size_estimate import _analyze, estimate_active_bytes_per_token
+
+# Above this fraction of SSM/conv (non-attention) layers, this formula's
+# fixed-overhead assumption is known (from real measurements, not
+# speculation -- see module docstring) to break down badly. Confidence
+# is downgraded rather than the estimate withheld, since a fast, honestly
+# low-confidence number is still more useful than none for `blune sweep`.
+_HYBRID_SSM_FRACTION_THRESHOLD = 0.2
 
 BANDWIDTH_CALIBRATION_RATIO = 1.353  # see module docstring -- empirical, not literal "bandwidth > spec"
 FIXED_OVERHEAD_SEC = 0.007755  # MLX's per-decode-step dispatch cost, fit from real data
@@ -102,6 +126,16 @@ def probe(
     transfer_time = bytes_per_token / (bandwidth_gbs * ratio * 1e9)
     tps = 1.0 / (transfer_time + overhead)
 
+    confidence = "medium (config-only formula, mean 4.5% error on 8-point real-measurement set)"
+    arch = _analyze(config)
+    if arch is not None and arch.layers:
+        ssm_fraction = arch.n_ssm_layers / arch.layers
+        if ssm_fraction > _HYBRID_SSM_FRACTION_THRESHOLD:
+            confidence = (
+                f"low (hybrid SSM/conv architecture, {ssm_fraction:.0%} of layers -- this formula "
+                "under-predicted 3 real hybrid measurements by 20-53%; prefer probe_mlx.py)"
+            )
+
     return {
         "library": "mlx (formula)",
         "repo_id": repo_id,
@@ -109,5 +143,5 @@ def probe(
         "context_length": context_length,
         "bytes_per_token_active": round(bytes_per_token / 1e6, 1),
         "estimated_real_tps": round(tps, 1),
-        "confidence": "medium (config-only formula, mean 4.8% error on 5-point calibration set)",
+        "confidence": confidence,
     }
