@@ -31,14 +31,43 @@ dense/MoE models) badly under-predicted 3 real hybrid measurements
 (LFM2.5-1.2B, LFM2-8B-A1B, granite-4.0-h-tiny) by 20-53%. Re-reading
 every relevant mlx-lm layer class line by line ruled out a missing-
 weight-structure bug -- every `nn.Linear`/`nn.Conv1d` this formula counts
-matches the real source exactly. The actual cause was confirmed with a
-direct MLX micro-benchmark: instantiating `mlx_lm.models.switch_layers
-.SwitchGLU` (the real MoE expert-routing layer) with random weights and
-timing a single-token (batch=1) forward pass shows a roughly constant
-~200us of dispatch overhead per call, regardless of expert count (32
-experts/4 active and 128 experts/8 active measured within ~5% of each
-other) -- overhead a plain "bandwidth + one flat constant" model has no
-way to represent for a model where most or all layers are MoE.
+matches the real source exactly.
+
+An isolated MLX micro-benchmark (instantiating `mlx_lm.models
+.switch_layers.SwitchGLU` with random weights, timing a single-token
+batch=1 forward pass) showed ~200us of overhead per call, roughly
+independent of expert count -- which motivated adding a per-MoE-layer
+term, and doing so measurably improved the fit (15.8% -> 9.6% mean error
+on all 9 real points). Take that mechanism with a grain of salt, though:
+a follow-up benchmark of an ISOLATED standard attention layer showed
+*more* isolated overhead (~294us) than the MoE layer did, yet dense
+attention-only models (Qwen2.5-Coder-7B, 28 layers) already fit well
+without needing any comparably large per-attention-layer term. The
+likely explanation is that single-layer isolated benchmarks don't
+capture MLX's lazy-eval graph fusion across a real 24-61-layer decode
+chain (this project found the same effect from the other direction,
+much earlier, in the "same real layer x N" experiment) -- so an
+isolated benchmark's absolute overhead number doesn't transfer cleanly
+to "marginal cost of one more layer in a fused graph." The per-MoE-layer
+term here is best understood as a validated *empirical* correction (it
+measurably reduces real prediction error) rather than a proven causal
+mechanism.
+
+Follow-up: the methodologically sound way to measure marginal per-layer
+overhead in a fused graph is timing chains of N identical layers
+(N=1,2,4,8,16) and reading the slope, not timing one layer in isolation.
+Done for attention: marginal cost converges to ~232us/layer even at
+N=16 (from 384us at N=1) -- meaningfully lower than the naive isolated
+number, but nowhere near zero, so graph fusion reduces the isolated
+benchmark's one-time setup cost, not the recurring per-layer dispatch
+cost. This is consistent in order of magnitude with what a
+28-attention-layer dense model like Qwen2.5-Coder-7B actually needs
+(roughly 4.5ms of total fitted overhead / 28 layers ~ 160us/layer). The
+equivalent chained benchmark for MoE (SwitchGLU) hit a shape-handling
+bug in the naive chaining script (exponential blowup, not real MLX
+behavior) and was not completed -- the per-MoE-layer term above is
+still only validated by the isolated single-call measurement and the
+resulting fit improvement, not by a clean chained measurement.
 
 Refitting with 3 parameters (bandwidth ratio, a base per-step overhead,
 and a per-MoE-layer overhead) via least squares against all 9 real
