@@ -45,8 +45,8 @@ _DTYPE_BITS = {
 }
 
 # layer_types strings (as seen across real configs) that mean "this layer
-# has no growing KV-cache" -- Mamba/SSM/linear-attention variants.
-_SSM_LAYER_TYPES = {"linear_attention", "mamba", "mamba2", "ssm", "recurrent"}
+# has no growing KV-cache" -- Mamba/SSM/linear-attention/conv variants.
+_SSM_LAYER_TYPES = {"linear_attention", "mamba", "mamba2", "ssm", "recurrent", "conv"}
 _SLIDING_LAYER_TYPES = {"sliding_attention", "local_attention"}
 
 # KV-cache entries are conventionally stored at fp16/bf16 regardless of
@@ -137,12 +137,95 @@ def _mamba_ssm_params(c: dict, hidden: int) -> Optional[float]:
     return in_proj + conv1d + x_proj + dt_proj + out_proj
 
 
+def _mamba2_ssm_params(c: dict, hidden: int) -> Optional[float]:
+    """Exact param count for a Mamba-2 SSM block (NVIDIA Nemotron-H, IBM
+    Granite hybrid), matching mlx_lm.models.{nemotron_h,granitemoehybrid}
+    's real Mamba2Mixer.__init__: a single fused in_proj (not Mamba-1's
+    separate x_proj/dt_proj), depthwise conv1d, out_proj. Checked BEFORE
+    the classic Mamba-1 formula in the dispatcher, since nemotron_h's
+    field names (ssm_state_size, conv_kernel) would otherwise also match
+    Mamba-1's fallback chain and silently use the wrong (Mamba-1) shape."""
+    n_heads = c.get("mamba_num_heads") or c.get("mamba_n_heads")
+    head_dim = c.get("mamba_head_dim") or c.get("mamba_d_head")
+    d_state = c.get("ssm_state_size") or c.get("mamba_d_state")
+    d_conv = c.get("conv_kernel") or c.get("mamba_d_conv")
+    if not all([n_heads, head_dim, d_state, d_conv]):
+        return None
+    n_groups = c.get("n_groups") or c.get("mamba_n_groups") or 1
+
+    proj_bias = bool(c.get("mamba_proj_bias"))
+    conv_bias = bool(c.get("use_conv_bias", c.get("mamba_conv_bias")))
+
+    intermediate = n_heads * head_dim
+    conv_dim = intermediate + 2 * n_groups * d_state
+    projection_size = intermediate + conv_dim + n_heads
+
+    in_proj = hidden * projection_size + (projection_size if proj_bias else 0)
+    conv1d = conv_dim * d_conv + (conv_dim if conv_bias else 0)  # depthwise
+    out_proj = intermediate * hidden + (hidden if proj_bias else 0)
+
+    return in_proj + conv1d + out_proj
+
+
+def _lfm2_conv_params(c: dict, hidden: int) -> Optional[float]:
+    """Exact param count for LFM2's ShortConv block, matching
+    mlx_lm.models.lfm2.ShortConv's real __init__ -- NOT a state-space
+    model at all despite living in a hybrid architecture: in_proj
+    (hidden -> 3*hidden), a depthwise conv over `hidden` channels with
+    kernel size conv_L_cache, and out_proj (hidden -> hidden)."""
+    conv_kernel = c.get("conv_L_cache")
+    if not conv_kernel:
+        return None
+    bias = bool(c.get("conv_bias"))
+
+    in_proj = hidden * 3 * hidden + (3 * hidden if bias else 0)
+    conv = hidden * conv_kernel + (hidden if bias else 0)  # depthwise
+    out_proj = hidden * hidden + (hidden if bias else 0)
+
+    return in_proj + conv + out_proj
+
+
 def _ssm_layer_params(c: dict, hidden: int, fallback: float) -> float:
     """Best-available SSM/hybrid-layer weight param count: a real layer
     implementation's exact formula if the config has the fields for one,
     else `fallback` (the generic attention+MLP estimate, known
-    inaccurate for genuine SSM layers -- see module docstring)."""
-    return _gated_delta_net_params(c, hidden) or _mamba_ssm_params(c, hidden) or fallback
+    inaccurate for genuine SSM/conv layers -- see module docstring)."""
+    return (
+        _gated_delta_net_params(c, hidden)
+        or _mamba2_ssm_params(c, hidden)
+        or _lfm2_conv_params(c, hidden)
+        or _mamba_ssm_params(c, hidden)
+        or fallback
+    )
+
+
+def _mla_weight_params(c: dict, hidden: int, heads: int) -> Optional[float]:
+    """Exact param count for DeepSeek-V3-style Multi-Head Latent Attention
+    WEIGHTS (distinct from its KV-cache size, handled separately), matching
+    mlx_lm.models.deepseek_v3.DeepseekV3Attention's real __init__:
+    q_a_proj+q_a_layernorm+q_b_proj when q_lora_rank is set (else a direct
+    q_proj), kv_a_proj_with_mqa+kv_a_layernorm+kv_b_proj, and o_proj.
+    Replaces the generic GQA weight formula for MLA layers -- that
+    approximation was never actually checked against real MLA weight
+    structure before (only the KV-cache term was MLA-aware)."""
+    kv_lora = c.get("kv_lora_rank")
+    qk_nope = c.get("qk_nope_head_dim")
+    qk_rope = c.get("qk_rope_head_dim")
+    v_head_dim = c.get("v_head_dim")
+    if not all([kv_lora, qk_nope, qk_rope, v_head_dim, heads]):
+        return None
+
+    q_lora = c.get("q_lora_rank")
+    if q_lora:
+        q_params = hidden * q_lora + q_lora * heads * (qk_nope + qk_rope)  # q_a_proj + q_b_proj
+    else:
+        q_params = hidden * heads * (qk_nope + qk_rope)  # direct q_proj
+
+    kv_a_proj = hidden * (kv_lora + qk_rope)
+    kv_b_proj = kv_lora * heads * (qk_nope + v_head_dim)
+    o_proj = heads * v_head_dim * hidden
+
+    return q_params + kv_a_proj + kv_b_proj + o_proj
 
 
 @dataclass
@@ -192,6 +275,15 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
         attn_weight_params_per_layer = 2 * hidden * (heads * head_dim) + 2 * hidden * (kv_heads * head_dim)
     else:
         attn_weight_params_per_layer = 4 * hidden * hidden
+
+    if is_mla:
+        # The generic GQA formula above was never actually right for MLA's
+        # very different low-rank projection structure (q_a/q_b, kv_a/kv_b)
+        # -- only the KV-cache side was MLA-aware before. Use the real
+        # formula when we have the fields for it.
+        mla_params = _mla_weight_params(c, hidden, heads)
+        if mla_params is not None:
+            attn_weight_params_per_layer = mla_params
 
     if is_mla:
         # MLA caches only the compressed latent + decoupled RoPE key per
@@ -245,13 +337,21 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
         or c.get("moe_k")
         or (1 if n_experts else 1)
     )
-    n_shared_experts = c.get("n_shared_experts") or c.get("n_shared_expert") or 0
+    n_shared_experts = (
+        c.get("n_shared_experts") or c.get("n_shared_expert") or c.get("num_shared_experts") or 0
+    )
     # Qwen3-Next-family MoE (mlx_lm's Qwen3NextSparseMoeBlock) always has
     # exactly one always-on shared expert with its OWN intermediate size,
-    # signaled by shared_expert_intermediate_size rather than a count
-    # field -- missing this entirely undercounted every layer's active
-    # bytes by a full extra expert's worth of compute.
-    shared_expert_inter = c.get("shared_expert_intermediate_size")
+    # signaled by one of these fields rather than a count field -- missing
+    # this entirely undercounted every layer's active bytes by a full
+    # extra expert's worth of compute. Field name varies by converter
+    # (Qwen3-Next/GLM use shared_expert_intermediate_size, Nemotron-H uses
+    # moe_shared_expert_intermediate_size, Granite uses shared_intermediate_size).
+    shared_expert_inter = (
+        c.get("shared_expert_intermediate_size")
+        or c.get("moe_shared_expert_intermediate_size")
+        or c.get("shared_intermediate_size")
+    )
     if not n_shared_experts and shared_expert_inter:
         n_shared_experts = 1
 

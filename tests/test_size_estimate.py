@@ -1,7 +1,10 @@
 from blune_cli.size_estimate import (
     _analyze,
     _gated_delta_net_params,
+    _lfm2_conv_params,
+    _mamba2_ssm_params,
     _mamba_ssm_params,
+    _mla_weight_params,
     estimate_active_bytes_per_token,
     estimate_bytes,
     estimate_kv_bytes_per_token,
@@ -287,6 +290,120 @@ def test_shared_expert_intermediate_size_counted_even_without_explicit_count():
     }
     with_shared = {**base, "shared_expert_intermediate_size": 512}
     assert estimate_active_bytes_per_token(with_shared) > estimate_active_bytes_per_token(base)
+
+
+def test_mamba2_matches_real_mlx_lm_layer():
+    """Exact param count check against mlx_lm's real Mamba2Mixer
+    (nemotron_h.py / granitemoehybrid.py), using granite-4.0-h-tiny's
+    real field values -- fused single in_proj (not Mamba-1's separate
+    x_proj/dt_proj), depthwise conv1d, out_proj."""
+    c = {
+        "mamba_n_heads": 48,
+        "mamba_d_head": 64,
+        "mamba_d_state": 128,
+        "mamba_d_conv": 4,
+        "mamba_n_groups": 1,
+        "mamba_proj_bias": False,
+        "mamba_conv_bias": True,
+    }
+    hidden = 1536
+    intermediate = 48 * 64
+    conv_dim = intermediate + 2 * 1 * 128
+    projection_size = intermediate + conv_dim + 48
+    expected = hidden * projection_size + conv_dim * 4 + conv_dim + intermediate * hidden
+    assert _mamba2_ssm_params(c, hidden) == expected
+
+
+def test_mamba2_field_names_dont_collide_with_mamba1_fallback():
+    """Regression test: nemotron_h's field names (ssm_state_size,
+    conv_kernel) also happen to match Mamba-1's fallback chain in
+    _mamba_ssm_params, which would silently produce the wrong (Mamba-1)
+    shape for a genuine Mamba-2 layer if checked in the wrong order."""
+    c = {
+        "mamba_num_heads": 64,
+        "mamba_head_dim": 128,
+        "ssm_state_size": 128,
+        "conv_kernel": 4,
+        "n_groups": 8,
+    }
+    assert _mamba2_ssm_params(c, 2688) is not None
+    # And the dispatcher must prefer it over the Mamba-1 formula:
+    from blune_cli.size_estimate import _ssm_layer_params
+
+    assert _ssm_layer_params(c, 2688, fallback=0.0) == _mamba2_ssm_params(c, 2688)
+
+
+def test_lfm2_conv_matches_real_mlx_lm_layer():
+    """Exact param count check against mlx_lm's real lfm2.ShortConv --
+    NOT a state-space model despite living in a hybrid architecture:
+    in_proj (hidden->3*hidden), depthwise conv, out_proj (hidden->hidden)."""
+    c = {"conv_L_cache": 3, "conv_bias": False}
+    hidden = 2048
+    expected = hidden * 3 * hidden + hidden * 3 + hidden * hidden
+    assert _lfm2_conv_params(c, hidden) == expected
+
+
+def test_mla_weight_params_matches_real_deepseek_v3():
+    """Exact param count check against mlx_lm's real
+    DeepseekV3Attention -- q_a_proj+q_b_proj (when q_lora_rank is set),
+    kv_a_proj_with_mqa+kv_b_proj, o_proj. This replaces a generic GQA
+    approximation that was never actually correct for MLA's very
+    different low-rank weight structure (only the KV-cache term was
+    MLA-aware before)."""
+    c = {
+        "kv_lora_rank": 512,
+        "q_lora_rank": 1536,
+        "qk_nope_head_dim": 128,
+        "qk_rope_head_dim": 64,
+        "v_head_dim": 128,
+    }
+    hidden, heads = 7168, 128
+    expected = (
+        hidden * 1536 + 1536 * heads * (128 + 64)  # q_a_proj + q_b_proj
+        + hidden * (512 + 64)  # kv_a_proj_with_mqa
+        + 512 * heads * (128 + 128)  # kv_b_proj
+        + heads * 128 * hidden  # o_proj
+    )
+    assert _mla_weight_params(c, hidden, heads) == expected
+
+
+def test_mla_without_q_lora_uses_direct_q_proj():
+    c = {"kv_lora_rank": 512, "qk_nope_head_dim": 128, "qk_rope_head_dim": 64, "v_head_dim": 128}
+    hidden, heads = 4096, 32
+    expected = (
+        hidden * heads * (128 + 64)  # direct q_proj, no q_lora_rank
+        + hidden * (512 + 64)
+        + 512 * heads * (128 + 128)
+        + heads * 128 * hidden
+    )
+    assert _mla_weight_params(c, hidden, heads) == expected
+
+
+def test_deepseek_v3_total_params_matches_published_671b():
+    """End-to-end check: the real DeepSeek-V3 config, through the full
+    pipeline (MLA weights + KV formula, first_k_dense_replace layer
+    interleaving, 3x SwiGLU MLP, shared experts), should land close to
+    the real, published ~671B parameter count."""
+    config = {
+        "hidden_size": 7168,
+        "num_hidden_layers": 61,
+        "num_attention_heads": 128,
+        "num_key_value_heads": 128,
+        "kv_lora_rank": 512,
+        "q_lora_rank": 1536,
+        "qk_rope_head_dim": 64,
+        "qk_nope_head_dim": 128,
+        "v_head_dim": 128,
+        "n_routed_experts": 256,
+        "num_experts_per_tok": 8,
+        "n_shared_experts": 1,
+        "moe_intermediate_size": 2048,
+        "intermediate_size": 18432,
+        "first_k_dense_replace": 3,
+        "vocab_size": 129280,
+    }
+    total_b = estimate_total_params(config) / 1e9
+    assert 655 < total_b < 690, f"expected close to the real 671B, got {total_b:.1f}B"
 
 
 def test_fits_in_ram_true_for_small_model():

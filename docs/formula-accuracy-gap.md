@@ -81,6 +81,69 @@ doesn't generalize from config.json field presence alone and would need
 either a `model_type`-keyed lookup table or (better) real measured data
 for more architectures to know how much it actually matters.
 
+## Update: online research + real source cross-checks for ~25 more architectures
+
+A second, much larger research pass (see `weight-formula-research-prompt.md`)
+produced per-architecture layer formulas for the top architectures by
+prevalence in our curated cache. Before implementing any of it, every
+formula was cross-checked against the actual field values in our own
+cached configs -- and several didn't match:
+
+**Implemented and verified correct:**
+- **MLA weight params** (not just KV-cache) for DeepSeek-V3-style
+  attention (`q_a_proj`/`q_b_proj`, `kv_a_proj_with_mqa`/`kv_b_proj`,
+  `o_proj`) -- this was a real gap: only the KV-cache term was
+  MLA-aware before, weight params still used the generic GQA formula.
+  Effect: DeepSeek-V3's total-param estimate improved from 672.1B to
+  **671.0B** against the real published 671B.
+- **Mamba-2** (NVIDIA Nemotron-H, IBM Granite hybrid): single fused
+  `in_proj`, depthwise conv, `out_proj` -- structurally different from
+  Mamba-1 (no separate `x_proj`/`dt_proj`). Verified against both
+  `nemotron_h.py` and `granitemoehybrid.py`; despite very different
+  field names (`mamba_num_heads`/`ssm_state_size`/`conv_kernel` vs.
+  `mamba_n_heads`/`mamba_d_state`/`mamba_d_conv`) the underlying
+  structure is identical. Dispatched *before* the Mamba-1 formula in
+  the fallback chain, since Nemotron-H's field names would otherwise
+  also (wrongly) match Mamba-1's.
+- **LFM2's ShortConv block**: turned out to NOT be a state-space model
+  at all (despite living in a "hybrid" architecture) -- just a gated
+  depthwise convolution (`in_proj`: hidden→3×hidden, conv, `out_proj`).
+  The research's guessed field names (`conv_kernel_size`,
+  `intermediate_size`-based sizing) didn't match the real config at all
+  (`conv_L_cache`, full `hidden_size`-based sizing) -- implemented from
+  reading `lfm2.py` directly instead.
+- Generalized shared-expert field-name detection: found **three more
+  naming variants** in real configs beyond what was already known
+  (`moe_shared_expert_intermediate_size` for Nemotron-H,
+  `shared_intermediate_size` for Granite, `num_shared_experts` as a
+  count field for a Bailing/Ring variant).
+- Added `"conv"` to the SSM/no-growing-KV-cache layer-type set (LFM2's
+  `layer_types` uses this word, not `"linear_attention"`/`"mamba"`).
+
+**Explicitly NOT implemented, and why:**
+- **Nemotron-H's per-layer structure** doesn't fit this project's model
+  at all: reading `nemotron_h.py` directly showed each layer is
+  *either* a Mamba-2 mixer, an attention mixer, a plain MLP, *or* a MoE
+  block (`hybrid_override_pattern` characters `M`/`*`/`-`/`E`) -- never
+  a mixer *plus* a separate FFN the way every other architecture here
+  works. Forcing it through the current "mixer + MLP per layer" loop
+  double-counts the MLP-only/MoE-only layers. Result: a real Nemotron-H
+  config estimates at 103.1B against a model named "30B" -- known-wrong,
+  not silently trusted. Fixing this needs a real restructuring (a
+  single-component-per-layer mode), not another formula patch.
+- **`bailing_moe_linear`**: the research described `linear_key_dim`/
+  `linear_value_dim` fields that simply aren't in the real config (which
+  instead has `head_dim`/`group_norm_size`) -- the described formula
+  would silently fail (return `None`, fall back to the generic
+  approximation) rather than error, so it was left unimplemented rather
+  than encode something unverified.
+- **`deepseek_v4`**: the research described the same MLA structure as
+  V3 (`kv_lora_rank`, `v_head_dim`), but the real cached config has
+  neither -- it has `o_lora_rank`, `q_lora_rank`, and an `index_head_dim`/
+  `index_n_heads`/`index_topk` indexer structure instead, closer to
+  `glm_moe_dsa`'s sparse-indexer pattern than to V3's MLA. Left
+  unimplemented rather than guess.
+
 ## What this means for further research
 
 1. **Highest-value next step, unchanged**: get real level-1 measurements
