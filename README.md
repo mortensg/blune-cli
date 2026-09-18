@@ -108,7 +108,8 @@ blune sweep --formula                 # instant config-only math estimate
                                        # instead of actually running each
                                        # model -- sweeps the whole cache
                                        # (thousands of models) in under a
-                                       # second; ~4.8% avg error, 7.0% max
+                                       # second; ~9.6% avg error, 21% max
+                                       # across dense/MoE/hybrid architectures
                                        # (see probe_formula.py)
 blune sweep --compare                 # run BOTH the real probe and the
                                        # formula for each model, printing

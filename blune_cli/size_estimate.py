@@ -649,6 +649,27 @@ def estimate_kv_bytes_per_token(config: dict, context_length: int = 128) -> Opti
     return _kv_bytes(a, context_length)
 
 
+def count_moe_layers(config: dict) -> int:
+    """Number of layers whose MLP is a MoE block -- used by
+    probe_formula.py's per-MoE-layer dispatch-overhead term. A direct
+    MLX micro-benchmark (isolating mlx_lm.models.switch_layers.SwitchGLU
+    with random weights) found each MoE-routing call costs a roughly
+    constant ~200us of dispatch overhead regardless of expert count,
+    distinct from the model-wide fixed overhead the original formula
+    used -- a flat per-decode-step constant systematically under-counted
+    models where most or all layers are MoE."""
+    nemotron = _nemotron_h_estimate(config)
+    if nemotron is not None:
+        c = config.get("text_config", config)
+        pattern = c.get("hybrid_override_pattern", "")
+        return sum(1 for ch in pattern if ch == "E")
+
+    a = _analyze(config)
+    if a is None or not a.moe_layer_mask:
+        return 0
+    return sum(a.moe_layer_mask)
+
+
 def fits_in_ram(
     config: dict,
     total_ram_gb: float,

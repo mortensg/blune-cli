@@ -170,7 +170,7 @@ def cmd_sweep(args, machine):
     if args.compare:
         mode = "compare (real probe + formula side by side)"
     elif args.formula:
-        mode = "formula (instant, ~7% avg error)"
+        mode = "formula (instant, ~9.6% avg error)"
     else:
         mode = f"real probe, {args.timeout}s/model timeout"
     ui.info(f"sweeping {len(repos)} cached model(s) (library={args.library}, mode={mode})...\n")
@@ -361,7 +361,7 @@ def main():
         "--formula",
         action="store_true",
         help="instant config-only math estimate instead of actually running each model "
-        "(much faster, ~7%% avg error -- see probe_formula.py)",
+        "(much faster, ~9.6%% avg error -- see probe_formula.py)",
     )
     p_sweep.add_argument(
         "--compare",
