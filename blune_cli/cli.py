@@ -17,6 +17,7 @@ from rich.prompt import IntPrompt, Prompt
 from . import (
     config_cache,
     measurements,
+    probe_formula,
     probe_llamacpp,
     probe_mlx,
     probe_vllm,
@@ -155,14 +156,19 @@ def cmd_sweep(args, machine):
     unlike cmd_search_and_rank (which only shows a final table), this is
     built for a run over hundreds/thousands of models where you want to
     see progress accumulate, not wonder if it's still alive."""
+    if args.formula and not machine.bandwidth_gbs:
+        ui.error(
+            "Unknown machine bandwidth -- the formula estimate needs this. "
+            "Run `blune hw` to check what was detected."
+        )
+        return
+
     repos = sorted(config_cache.list_curated())
     if args.limit:
         repos = repos[: args.limit]
 
-    ui.info(
-        f"sweeping {len(repos)} cached model(s) (library={args.library}, "
-        f"timeout={args.timeout}s/model)...\n"
-    )
+    mode = "formula (instant, ~7% avg error)" if args.formula else f"real probe, {args.timeout}s/model timeout"
+    ui.info(f"sweeping {len(repos)} cached model(s) (library={args.library}, mode={mode})...\n")
 
     machine_key = _machine_key(machine)
     ok, failed, skipped = 0, 0, 0
@@ -179,6 +185,17 @@ def cmd_sweep(args, machine):
         except Exception as e:
             ui.stream_result(i, len(repos), repo, f"FAILED: {e}", "red")
             failed += 1
+            continue
+
+        if args.formula:
+            try:
+                r = probe_formula.probe(repo, config, machine.bandwidth_gbs)
+                tps = r["estimated_real_tps"]
+                ui.stream_result(i, len(repos), repo, f"{tps} tok/s (formula)", "magenta")
+                ok += 1
+            except Exception as e:
+                ui.stream_result(i, len(repos), repo, f"FAILED: {e}", "red")
+                failed += 1
             continue
 
         if machine.total_ram_gb and not size_estimate.fits_in_ram(config, machine.total_ram_gb):
@@ -294,6 +311,12 @@ def main():
     p_sweep.add_argument("--library", choices=["mlx", "vllm"], default="mlx")
     p_sweep.add_argument("--limit", type=int, default=None, help="cap on how many to probe")
     p_sweep.add_argument("--timeout", type=int, default=120, help="per-model timeout in seconds")
+    p_sweep.add_argument(
+        "--formula",
+        action="store_true",
+        help="instant config-only math estimate instead of actually running each model "
+        "(much faster, ~7%% avg error -- see probe_formula.py)",
+    )
 
     args = parser.parse_args()
     machine = detect_machine()
