@@ -255,3 +255,35 @@ estimates) for these specific repos.
    speculative decoding, multi-GPU/interconnect) remains completely
    unimplemented and unvalidated — this document only covers the
    MLX single-stream-decode formula's own internal accuracy.
+
+## Update: a 4th real measurement complicates "hybrid = unreliable"
+
+Nemotron-3-Nano-30B-A3B (the exact model whose *structure* was fixed
+earlier — 103.1B → 31.6B) was downloaded and measured for real: **57.1
+tok/s**. Both the zero-download probe (60.2, +5.4%) and the formula
+(60.6, **+6.1%**) were accurate — despite Nemotron-H being arguably the
+*most* hybrid architecture here (every layer is mixer-or-FFN, never
+both), and despite it tripping the `>20% SSM/conv layers` confidence
+check's underlying assumption.
+
+So "hybrid architectures break the formula" was too broad a conclusion
+from 3 data points. The actual distinction, best guess with 4 points:
+Nemotron-H's bytes-per-token comes from `_nemotron_h_estimate()`, a
+dedicated formula built by reading `nemotron_h.py`'s real layer classes
+line by line — while LFM2/Granite still run through the generic
+per-layer loop with an SSM-formula plugged in, which is evidently less
+complete for those two architectures specifically than the Nemotron-H
+formula is for its own. In other words: the failure mode isn't "hybrid,"
+it's "how completely was this specific architecture's real source
+verified" — which loops back to this project's actual working method
+(read the source, don't guess) rather than a property of hybrid
+architectures as a category.
+
+Practical consequence left as-is rather than "fixed": the confidence
+check in `probe_formula.py` only inspects `_analyze()`'s output, which
+has no notion of `hybrid_override_pattern` and reports 0 SSM layers for
+Nemotron-H — so it never downgrades Nemotron-H's confidence. That's the
+right answer here, but by accident of code structure (the dedicated
+Nemotron-H path is invisible to the confidence check), not because the
+check was designed to distinguish "good hybrid" from "bad hybrid."
+Worth revisiting if/when more hybrid architectures are added.

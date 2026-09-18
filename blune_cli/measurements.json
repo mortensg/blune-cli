@@ -70,6 +70,13 @@
       "machine": "m4_pro_48gb",
       "real_decode_tps": 116.9,
       "notes": "IBM Granite hybrid (Mamba-2 + attention + MoE), via mlx_lm.generate, 19 prompt + 107 generated tokens"
+    },
+    {
+      "repo_id": "mlx-community/NVIDIA-Nemotron-3-Nano-30B-A3B-MLX-8Bit",
+      "library": "mlx",
+      "machine": "m4_pro_48gb",
+      "real_decode_tps": 57.1,
+      "notes": "Nemotron-H single-component-per-layer (Mamba-2/attention/MLP/MoE via hybrid_override_pattern), 30B total, ~3B active, via mlx_lm.generate, 27 prompt + 131 generated tokens, peak memory 33.7GB"
     }
   ]
 }

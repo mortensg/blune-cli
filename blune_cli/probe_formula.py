@@ -84,6 +84,24 @@ its documented ~81-85% ratio band, across architectures it was never
 specifically tuned for. For hybrid/SSM architectures, prefer
 probe_mlx.py over this formula until enough real data exists to
 calibrate a hybrid-specific overhead model.
+
+Important nuance from a 4th real hybrid measurement (Nemotron-H,
+NVIDIA-Nemotron-3-Nano-30B-A3B): "hybrid = unreliable" is too broad a
+rule. This formula was actually ACCURATE for it (+6.1%, real 57.1 tok/s
+vs. formula 60.6), despite Nemotron-H being arguably the MOST hybrid
+architecture this project handles (mixer-or-FFN per layer, never both).
+The difference from the 3 bad cases: Nemotron-H's bytes-per-token comes
+from `_nemotron_h_estimate()` in size_estimate.py, a dedicated formula
+built by reading nemotron_h.py's real layer classes directly, while
+LFM2/Granite still go through the generic per-layer mixer+MLP loop with
+architecture-specific SSM param formulas plugged in -- evidently less
+complete for those two than for Nemotron-H's Mamba-2 blocks specifically.
+The `_HYBRID_SSM_FRACTION_THRESHOLD` confidence check below only inspects
+`_analyze()`'s output, which doesn't know about `hybrid_override_pattern`
+at all (`n_ssm_layers` reads as 0 for Nemotron-H) -- so it never downgrades
+Nemotron-H's confidence. That happens to be the right answer here, but by
+accident of code structure, not by a considered rule -- worth keeping in
+mind if this logic is refactored later.
 """
 from typing import Optional
 
