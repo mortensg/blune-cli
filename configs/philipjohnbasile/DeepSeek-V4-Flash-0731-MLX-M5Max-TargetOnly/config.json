@@ -1,0 +1,2650 @@
+{
+  "architectures": [
+    "DeepseekV4ForCausalLM"
+  ],
+  "attention_bias": false,
+  "attention_dropout": 0.0,
+  "bos_token_id": 0,
+  "compress_ratios": [
+    0,
+    0,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4,
+    128,
+    4
+  ],
+  "compress_rope_theta": 160000,
+  "dspark_block_size": 0,
+  "dspark_markov_rank": 256,
+  "dspark_noise_token_id": 128799,
+  "dspark_target_layer_ids": [],
+  "eos_token_id": 1,
+  "expert_dtype": "fp4",
+  "hc_eps": 1e-06,
+  "hc_mult": 4,
+  "hc_sinkhorn_iters": 20,
+  "head_dim": 512,
+  "hidden_act": "silu",
+  "hidden_size": 4096,
+  "index_head_dim": 128,
+  "index_n_heads": 64,
+  "index_topk": 512,
+  "initializer_range": 0.02,
+  "max_position_embeddings": 1048576,
+  "mlx_serve_converter": {
+    "mechanical_transformations": [
+      "num_nextn_predict_layers=0",
+      "dspark_block_size=0",
+      "dspark_target_layer_ids=[]",
+      "compress_ratios=trunk[:num_hidden_layers]",
+      "quantization.mtp.* removed"
+    ],
+    "schema": "mlx-serve.dsv4-target-only-gold-view-provenance.v2",
+    "source_directory": "/Users/pjb/models/mlx-community/DeepSeek-V4-Flash-0731-tailfix-calibrated-rebuilt-20260809",
+    "source_metadata": {
+      "README.md": {
+        "format": "utf8",
+        "sha256": "761f673ff3d244472d70204c324a4566d54d44a474c5be391c8054628fbf05b7",
+        "size": 1854
+      },
+      "config.json": {
+        "format": "json",
+        "sha256": "a82ede7b3fcc3478b56c5b0cc582080c802789f4f626a06491e09e4b58b62978",
+        "size": 57942
+      },
+      "generation_config.json": {
+        "format": "json",
+        "sha256": "d14db17fca8dc5492af88fd7938475e3a9fdddddd7596a5062d2ecd58abb942b",
+        "size": 103
+      },
+      "model.safetensors.index.json": {
+        "format": "json",
+        "sha256": "e6e65dd75168904354df506523477d83351f54c9df9aab69657af54e0ef7cdd9",
+        "size": 164753
+      },
+      "tokenizer.json": {
+        "format": "json",
+        "sha256": "8f9f37ca37fdc4f5fd36d5cf4d3b0e8392edb4e894fd10cc0d70b4957c8633cf",
+        "size": 6367146
+      },
+      "tokenizer_config.json": {
+        "format": "json",
+        "sha256": "58a9fb7a7e68144c0b6fe4bc8349ee77d818702f95c9c6aa41143d9e27d7c2e6",
+        "size": 5041
+      }
+    },
+    "source_mlx_serve_converter": {
+      "calibration": "DeepSeek-V4-Flash-0731-chat-v2-routed-moe-mlxserve.dat",
+      "converter_git_commit": "a9a4babd351d9745ef1f4c9ff5a660ac546f21b6",
+      "converter_sha256": "ff72ec400353dde35afdb06271641abaa06371626cc756f5bee41358b4dc893e",
+      "expert_override": "39-42=4:64",
+      "imatrix_sha256": "7400b8d752cc3fb3d76abdf67e9a0ad4546971a18e4f7da392138bd269cfaf55",
+      "metadata_rebuilt": true,
+      "mix": "imatrix trunk experts; 39-42 4-bit/g64; MTP routed experts 4-bit/g64 and MTP spine 8-bit/g64",
+      "source": "deepseek-ai/DeepSeek-V4-Flash-0731",
+      "source_revision": "7872f01b1d1fe23eabc4c98b48bffcef5a386062"
+    },
+    "target": {
+      "complete_shard_file_bytes": 103849215724,
+      "shard_count": 44,
+      "tensor_count": 2320,
+      "tensor_payload_bytes": 103848946780
+    }
+  },
+  "model_type": "deepseek_v4",
+  "moe_intermediate_size": 2048,
+  "n_routed_experts": 256,
+  "n_shared_experts": 1,
+  "norm_topk_prob": true,
+  "num_attention_heads": 64,
+  "num_experts_per_tok": 6,
+  "num_hash_layers": 3,
+  "num_hidden_layers": 43,
+  "num_key_value_heads": 1,
+  "num_nextn_predict_layers": 0,
+  "o_groups": 8,
+  "o_lora_rank": 1024,
+  "q_lora_rank": 1024,
+  "qk_rope_head_dim": 64,
+  "quantization": {
+    "bits": 8,
+    "embed": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "group_size": 64,
+    "head": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.0.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.0.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.0.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.0.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.0.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.0.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.0.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.0.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.0.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.0.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.0.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.1.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.1.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.1.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.1.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.1.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.1.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.1.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.1.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.1.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.1.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.1.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.10.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.10.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.10.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.10.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.10.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.10.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.10.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.10.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.10.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.10.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.10.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.10.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.11.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.11.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.11.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.11.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.11.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.11.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.11.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.11.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.11.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.11.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.11.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.12.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.12.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.12.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.12.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.12.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.12.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.12.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.12.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.12.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.12.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.12.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.12.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.13.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.13.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.13.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.13.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.13.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.13.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.13.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.13.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.13.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.13.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.13.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.14.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.14.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.14.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.14.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.14.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.14.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.14.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.14.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.14.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.14.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.14.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.14.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.15.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.15.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.15.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.15.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.15.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.15.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.15.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.15.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.15.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.15.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.15.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.16.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.16.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.16.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.16.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.16.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.16.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.16.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.16.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.16.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.16.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.16.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.16.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.17.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.17.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.17.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.17.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.17.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.17.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.17.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.17.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.17.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.17.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.17.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.18.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.18.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.18.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.18.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.18.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.18.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.18.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.18.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.18.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.18.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.18.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.18.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.19.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.19.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.19.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.19.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.19.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.19.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.19.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.19.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.19.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.19.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.19.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.2.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.2.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.2.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.2.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.2.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.2.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.2.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.2.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.2.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.2.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.2.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.2.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.20.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.20.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.20.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.20.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.20.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.20.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.20.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.20.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.20.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.20.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.20.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.20.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.21.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.21.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.21.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.21.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.21.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.21.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.21.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.21.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.21.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.21.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.21.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.22.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.22.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.22.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.22.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.22.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.22.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.22.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.22.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.22.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.22.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.22.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.22.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.23.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.23.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.23.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.23.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.23.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.23.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.23.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.23.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.23.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.23.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.23.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.24.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.24.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.24.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.24.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.24.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.24.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.24.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.24.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.24.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.24.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.24.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.24.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.25.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.25.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.25.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.25.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.25.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.25.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.25.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.25.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.25.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.25.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.25.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.26.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.26.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.26.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.26.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.26.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.26.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.26.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.26.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.26.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.26.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.26.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.26.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.27.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.27.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.27.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.27.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.27.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.27.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.27.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.27.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.27.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.27.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.27.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.28.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.28.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.28.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.28.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.28.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.28.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.28.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.28.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.28.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.28.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.28.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.28.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.29.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.29.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.29.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.29.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.29.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.29.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.29.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.29.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.29.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.29.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.29.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.3.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.3.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.3.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.3.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.3.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.3.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.3.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.3.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.3.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.3.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.3.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.30.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.30.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.30.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.30.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.30.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.30.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.30.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.30.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.30.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.30.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.30.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.30.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.31.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.31.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.31.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.31.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.31.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.31.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.31.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.31.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.31.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.31.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.31.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.32.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.32.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.32.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.32.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.32.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.32.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.32.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.32.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.32.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.32.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.32.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.32.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.33.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.33.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.33.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.33.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.33.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.33.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.33.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.33.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.33.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.33.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.33.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.34.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.34.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.34.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.34.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.34.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.34.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.34.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.34.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.34.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.34.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.34.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.34.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.35.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.35.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.35.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.35.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.35.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.35.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.35.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.35.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.35.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.35.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.35.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.36.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.36.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.36.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.36.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.36.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.36.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.36.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.36.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.36.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.36.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.36.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.36.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.37.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.37.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.37.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.37.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.37.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.37.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.37.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.37.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.37.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.37.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.37.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.38.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.38.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.38.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.38.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.38.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.38.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.38.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.38.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.38.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.38.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.38.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.38.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.39.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.39.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.39.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.39.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.39.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.39.ffn.experts.w1": {
+      "bits": 4,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.39.ffn.experts.w2": {
+      "bits": 4,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.39.ffn.experts.w3": {
+      "bits": 4,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.39.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.39.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.39.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.4.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.4.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.4.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.4.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.4.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.4.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.4.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.4.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.4.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.4.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.4.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.4.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.40.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.40.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.40.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.40.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.40.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.40.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.40.ffn.experts.w1": {
+      "bits": 4,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.40.ffn.experts.w2": {
+      "bits": 4,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.40.ffn.experts.w3": {
+      "bits": 4,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.40.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.40.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.40.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.41.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.41.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.41.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.41.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.41.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.41.ffn.experts.w1": {
+      "bits": 4,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.41.ffn.experts.w2": {
+      "bits": 4,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.41.ffn.experts.w3": {
+      "bits": 4,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.41.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.41.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.41.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.42.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.42.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.42.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.42.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.42.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.42.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.42.ffn.experts.w1": {
+      "bits": 4,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.42.ffn.experts.w2": {
+      "bits": 4,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.42.ffn.experts.w3": {
+      "bits": 4,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.42.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.42.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.42.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.5.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.5.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.5.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.5.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.5.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.5.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.5.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.5.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.5.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.5.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.5.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.6.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.6.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.6.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.6.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.6.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.6.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.6.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.6.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.6.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.6.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.6.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.6.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.7.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.7.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.7.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.7.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.7.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.7.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.7.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.7.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.7.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.7.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.7.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.8.attn.indexer.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.8.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.8.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.8.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.8.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.8.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.8.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.8.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.8.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.8.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.8.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.8.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.9.attn.wkv": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.9.attn.wo_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.9.attn.wo_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.9.attn.wq_a": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.9.attn.wq_b": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.9.ffn.experts.w1": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.9.ffn.experts.w2": {
+      "bits": 3,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.9.ffn.experts.w3": {
+      "bits": 2,
+      "group_size": 128,
+      "mode": "affine"
+    },
+    "layers.9.ffn.shared_experts.w1": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.9.ffn.shared_experts.w2": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "layers.9.ffn.shared_experts.w3": {
+      "bits": 8,
+      "group_size": 64,
+      "mode": "affine"
+    },
+    "mode": "affine"
+  },
+  "rms_norm_eps": 1e-06,
+  "rope_scaling": {
+    "beta_fast": 32,
+    "beta_slow": 1,
+    "factor": 16,
+    "original_max_position_embeddings": 65536,
+    "type": "yarn"
+  },
+  "rope_theta": 10000,
+  "routed_scaling_factor": 1.5,
+  "scoring_func": "sqrtsoftplus",
+  "sliding_window": 128,
+  "swiglu_limit": 10.0,
+  "tie_word_embeddings": false,
+  "topk_method": "noaux_tc",
+  "torch_dtype": "bfloat16",
+  "transformers_version": "4.57.1",
+  "use_cache": true,
+  "vocab_size": 129280
+}

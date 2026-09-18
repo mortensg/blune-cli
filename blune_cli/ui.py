@@ -91,3 +91,11 @@ def error(msg: str):
 
 def info(msg: str):
     console.print(f"[dim]{msg}[/]")
+
+
+def progress_step(i: int, total: int, repo_id: str):
+    """Overwrite the same line with '[i/total] probing <repo>' so a long
+    search+rank run (dozens to hundreds of candidates, each needing a
+    network fetch and a real probe) shows visible progress instead of
+    looking hung."""
+    console.print(f"[dim][{i}/{total}][/] probing {repo_id}...", end="\r")

@@ -55,13 +55,15 @@ def cmd_search_and_rank(args, machine):
     ui.info(f"found {len(repos)} candidate(s), probing each (library={args.library})...\n")
 
     results = []
-    for repo in repos:
+    for i, repo in enumerate(repos, 1):
+        ui.progress_step(i, len(repos), repo)
         try:
             r = run_probe(repo, args.library, machine, args.offline)
             r["repo_id"] = repo
             results.append(r)
         except Exception as e:
             results.append({"repo_id": repo, "error": str(e)})
+    ui.console.print()
     ui.show_ranking(results)
 
 
