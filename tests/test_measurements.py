@@ -15,7 +15,7 @@ def test_find_real_measurement_exact_match():
         "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit", "mlx", machine="m4_pro_48gb"
     )
     assert m is not None
-    assert m["real_decode_tps"] == 89.8
+    assert m["real_decode_tps"] == 90.5
 
 
 def test_find_real_measurement_normalizes_backend_suffix():

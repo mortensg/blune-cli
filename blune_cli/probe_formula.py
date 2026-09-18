@@ -75,6 +75,18 @@ conventional MoE, GatedDeltaNet hybrid, Mamba-2 hybrid, and Nemotron-H's
 single-component-per-layer architecture) drops mean error from 15.8%
 (the best a 2-parameter refit on the same 9 points could do) to 9.6%.
 
+Note on measurements.json's 10th entry (Josiefied-Qwen3.5-0.8B, a
+small/fast dense GatedDeltaNet model): deliberately NOT included in the
+9-point fit below. Adding it to the same 3-parameter least-squares
+regression made every other point's fit worse (mean 7.2% -> 10.5%) and
+the new point itself came out at +43.9% error -- a single global
+BASE_OVERHEAD_SEC can't be right both for a model this fast and for the
+7B-35B range the rest of the set covers (same failure mode already
+flagged for LFM2.5-1.2B below, now confirmed on a second, more extreme
+case). See docs/formula-accuracy-gap.md item 7 -- kept as real ground
+truth for whenever this gets a proper fix, not silently absorbed into a
+worse-fitting constant.
+
 Calibration data (M4 Pro, 48GB; see measurements.json for the raw numbers,
 context_length=115 matching this project's own probe's prompt+decode
 range; includes the Qwen3-Next-family q_proj-doubling fix -- see

@@ -5,8 +5,8 @@
       "repo_id": "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
       "library": "mlx",
       "machine": "m4_pro_48gb",
-      "real_decode_tps": 89.8,
-      "notes": "MoE, 3B active/30B total, no thinking mode"
+      "real_decode_tps": 90.5,
+      "notes": "MoE, 3B active/30B total, no thinking mode; updated to a 10-trial mean (std 0.66, 0.73% relative) via mlx_lm.generate, 100 generated tokens/trial -- first repeated-trial noise-floor measurement in this project's own data, confirms run-to-run noise is well under 1%, not the 1.8-3.5% a later research pass claimed without measuring it"
     },
     {
       "repo_id": "mlx-community/gemma-4-26b-a4b-it-4bit",
@@ -26,8 +26,8 @@
       "repo_id": "mlx-community/Qwen3.6-35B-A3B-4bit",
       "library": "mlx",
       "machine": "m4_pro_48gb",
-      "real_decode_tps": 88.3,
-      "notes": "MoE hybrid (Gated DeltaNet + attention), thinking mode by default"
+      "real_decode_tps": 89.1,
+      "notes": "MoE hybrid (Gated DeltaNet + attention), thinking mode by default; updated to a 10-trial mean (std 0.71, 0.80% relative) via mlx_lm.generate, 100 generated tokens/trial"
     },
     {
       "repo_id": "mlx-community/gpt-oss-20b-OptiQ-4bit",
@@ -77,6 +77,13 @@
       "machine": "m4_pro_48gb",
       "real_decode_tps": 57.1,
       "notes": "Nemotron-H single-component-per-layer (Mamba-2/attention/MLP/MoE via hybrid_override_pattern), 30B total, ~3B active, via mlx_lm.generate, 27 prompt + 131 generated tokens, peak memory 33.7GB"
+    },
+    {
+      "repo_id": "mlx-community/Josiefied-Qwen3.5-0.8B-gabliterated-v1-4bit",
+      "library": "mlx",
+      "machine": "m4_pro_48gb",
+      "real_decode_tps": 339.7,
+      "notes": "dense GatedDeltaNet hybrid (Qwen3.5, NO MoE -- first pure-dense GatedDeltaNet ground-truth point; Qwen3.6-35B-A3B-4bit above is GatedDeltaNet+MoE), 5-trial mean (std 2.3, 0.68% relative) via mlx_lm.generate, 100 generated tokens/trial. Also used to confirm probe_mlx.py's synthetic-probe deficit is far larger for GatedDeltaNet-hybrid architectures (~33-40% raw) than for dense/MoE (~15-19%) -- see docs/formula-accuracy-gap.md item 4"
     }
   ]
 }

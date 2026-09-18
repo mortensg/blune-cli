@@ -151,12 +151,15 @@ fell from 9.4% to **7.2%** (max 21.1% -> 20.1%) -- a real, verified
 improvement on the calibration set itself, not just the one outlier
 that motivated the investigation.
 
-**Still open:** the remaining ~15% on this specific held-out model is
-now most plausibly `probe_mlx.py`'s own known ~15-19% synthetic-probe
-deficit (item 4) rather than a formula bug, since the two mechanistic,
-source-verified bytes bugs found here have both been fixed. Confirming
-that requires closing item 4 (a real native-execution comparison), not
-another config-level fix.
+**Still open:** re-running this comparison after item 4's hybrid-aware
+probe fix (below) shows Youssofal's `probe_mlx.py` "ground truth"
+estimate itself moved from 66.6 to 88.2 tok/s (it's a GatedDeltaNet+MoE
+hybrid, so it was being miscalibrated by the same flat-ratio bug found
+in item 4) -- formula-vs-corrected-probe is now **-13.3%** (formula
+under-predicting, having flipped sign from the pre-item-4 +14.9%). The
+remaining gap is most plausibly this project's general 7.2%-mean formula
+error (item 6) plus the still-unhandled partial mixer-projection
+overrides noted above (~2-3 points, not implemented), not a new bug.
 
 ## 6. Quantization metadata bytes (scale/bias) missing from every byte estimate -- RESOLVED
 
@@ -173,7 +176,7 @@ measurements (a systematic bytes-per-token change shifts what
 `BANDWIDTH_CALIBRATION_RATIO` should be) -- see item 3b for the combined
 before/after numbers from this fix plus the mixed-quantization fix.
 
-## 4. `probe_mlx.py`'s own ~15-19% synthetic-probe deficit -- one hypothesis ruled out
+## 4. `probe_mlx.py`'s own synthetic-probe deficit -- hybrid architectures split out, 2 hypotheses ruled out
 
 Tested the "insufficient warmup" hypothesis directly: ran the same
 model (`Qwen2.5-Coder-7B-Instruct-4bit`) at warmup=5, 15, 25, and 40
@@ -183,14 +186,46 @@ tok/s) -- **DVFS/clock-ramp and JIT-compilation warmup depth is not the
 cause**, decisively, not just unconfirmed. `probe_mlx.py`'s warmup
 stays at 5 iterations; increasing it would add cost for zero benefit.
 
-Remaining untested candidate mechanisms:
-- Random/uninitialized weights not going through the same code path as
-  a real checkpoint load (may not hit the same fused kernels).
-- `mmap`-loaded real weight files vs. Python-heap-allocated random
-  arrays having different memory locality/TLB behavior.
+**New finding: the deficit is not a flat ~15-19% -- it's much larger
+and architecture-dependent.** Downloaded two real GatedDeltaNet-hybrid
+checkpoints (not previously in this project's real-download set, which
+was all dense/MoE) and measured real speed directly via 10 and 5
+repeated `mlx_lm.generate` trials respectively (both under 1% relative
+std, confirming this is a real effect, not run-to-run noise):
+- `Qwen3.6-35B-A3B-4bit` (GatedDeltaNet+MoE hybrid): real mean 89.1
+  tok/s, `probe_mlx.py` raw 59.4 tok/s -- a **33% raw deficit**, still
+  -18% error after the flat 0.82 `CALIBRATION_RATIO`.
+- `Josiefied-Qwen3.5-0.8B-gabliterated-v1-4bit` (GatedDeltaNet, dense,
+  no MoE): real mean 339.7 tok/s, `probe_mlx.py` raw 204.6 tok/s -- a
+  **40% raw deficit**, -27% error after the flat ratio.
 
-This is still a distinct, substantial MLX-runtime investigation, just
-smaller in scope now that one major candidate is eliminated.
+Both far exceed the ~15-19% figure the flat ratio was validated
+against (which used only dense/MoE checkpoints -- see `probe_mlx.py`'s
+own docstring). Added `HYBRID_CALIBRATION_RATIO = 0.63` (probe_mlx.py
+now picks it automatically via `_analyze(config).n_ssm_layers > 0`),
+which brought both hybrid points to +6.9% and -5.7% error respectively
+without touching the existing dense/MoE ratio or its own accuracy
+(`Qwen3-Coder-30B-A3B-Instruct-4bit` still -5.0% with 0.82). Fit from
+only 2 real points, below this project's own stated 5-per-family bar --
+treat as a real, directionally-confirmed improvement, not a precisely
+calibrated constant; more hybrid ground truth would firm this up.
+
+Also directly tested the **mmap/TLB-locality** hypothesis (a "deep
+research" pass's proposed mechanism: heap-fragmented random arrays vs.
+mmap-backed contiguous real weight files causing GPU MMU/TLB misses).
+Built `probe_mlx.py`'s exact random+quantized model, timed decode, then
+saved those exact values to safetensors and reloaded via `mx.load`
+(mmap-backed, numerically identical) and re-timed. **Result: the
+mmap-reloaded version was 4.9% SLOWER, not faster** -- the wrong
+direction for TLB thrashing to be the explanation. Ruled out, same
+decisive way the warmup hypothesis was.
+
+Remaining untested candidate mechanism: something GatedDeltaNet's
+custom Metal kernel (`gated_delta.py`'s `_gated_delta_kernel`) does
+differently with random vs. real gating/decay values -- would need
+Metal System Trace (`xctrace`) to actually confirm at the kernel-dispatch
+level, not just narrow by elimination like the two ruled-out hypotheses
+above.
 
 ## 5. LFM2-8B-A1B / granite-4.0-h-tiny's remaining active-bytes gap -- partially confirmed
 
@@ -220,3 +255,39 @@ If a real second data point confirms occupancy scales with `d_ff`
 specifically (not just "is this a fine-grained MoE"), the additive
 per-MoE-layer term in `probe_formula.py` should become a function of
 `d_ff` rather than a flat constant.
+
+## 7. Small/fast dense-hybrid models don't fit the same global 3-parameter model -- confirmed, not just LFM2.5-specific
+
+Downloaded and measured `Josiefied-Qwen3.5-0.8B-gabliterated-v1-4bit`
+(dense GatedDeltaNet hybrid, 0.8B params, real mean 339.7 tok/s over 5
+trials) as a genuinely new calibration point -- smaller and faster than
+anything previously measured, and the first *pure dense* GatedDeltaNet
+point (previously only represented combined with MoE, in
+`Qwen3.6-35B-A3B-4bit`). Re-running the same 3-parameter least-squares
+fit with this 10th point added made the overall fit WORSE, not better:
+mean error 7.2% -> 10.5%, and this new point itself came out at +43.9%
+error -- the refit's `BASE_OVERHEAD_SEC` flipped from negative to
+positive trying to accommodate it, which then hurt several mid-size
+models that were previously well-fit.
+
+This is not new-point noise -- it's the same failure mode already
+flagged for `Huihui-LFM2.5-1.2B` (also small/fast/dense-hybrid, also the
+worst-fit point even before this addition), now confirmed on a second,
+even smaller/faster model. **A single global `BASE_OVERHEAD_SEC` cannot
+be simultaneously right for models this fast (where fixed overhead is a
+large fraction of total decode time) and for the 7B-35B range the rest
+of the calibration set covers.** The 10-point refit's constants were
+NOT adopted for production (`probe_formula.py` keeps the 9-point-fit
+values, 7.2%/20.1% mean/max) -- this new measurement is kept in
+`measurements.json` as real ground truth for whenever this is properly
+addressed, but is currently a known, honestly-flagged blind spot rather
+than something silently absorbed into a worse-fitting global constant.
+
+**What would actually fix this:** the fixed-overhead term likely needs
+to stop being a flat constant and become a function of something that
+distinguishes "small enough that fixed overhead dominates" from
+"large enough that bandwidth dominates" -- candidate variables:
+absolute decode time itself (circular, can't use the answer as an
+input), total layer count, or total active bytes. Needs at least one
+more small/fast real measurement (a third point) before any specific
+functional form could be fit rather than guessed.
