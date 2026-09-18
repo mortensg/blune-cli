@@ -344,3 +344,83 @@ One real, independent bug was found and fixed while re-verifying:
 of its layers as MoE. Confirmed not to be the cause of the 2-2.4x gap
 above (fixing it makes the estimate `_smaller`_, the wrong direction),
 but a genuine correctness fix on its own.
+
+---
+
+## Next research needed: llama.cpp / GGUF and vLLM calibration
+
+Everything above is MLX-specific (`probe_mlx.py` / `probe_formula.py`).
+The other two engines this project supports are in a much worse state
+and are the next place to spend effort, in priority order:
+
+### `probe_llamacpp.py` -- `GGUF_CALIBRATION_RATIO = 0.60`
+
+This constant is a placeholder, explicitly documented in the module as
+"seeded from the MLX ratio plus llama.cpp's generally-lower Metal
+efficiency" -- i.e. never derived from a real llama.cpp measurement.
+
+**A first real measurement was taken this session** (via `llama-bench`,
+Apple M4 Pro, Metal backend) on Qwen2.5-0.5B-Instruct-GGUF (630M params)
+across 4 quantization levels, isolating the quantization axis on a
+single fixed model:
+
+| Quant | File size | Real tg150 (tok/s) | Raw bandwidth-only tps | Implied fixed overhead |
+|---|---|---|---|---|
+| Q4_0 | 403.2 MiB | 307.6 | 645.6 | 1.70ms |
+| Q4_K_M | 463.0 MiB | 269.8 | 562.3 | 1.93ms |
+| Q6_K | 614.6 MiB | 256.9 | 423.7 | 1.53ms |
+| Q8_0 | 638.7 MiB | 256.1 | 407.7 | 1.45ms |
+
+The implied fixed overhead (1.45-1.93ms) is much more consistent across
+quant levels than a single ratio would suggest, and -- as expected for
+a compiled C++ binary vs. MLX's Python-orchestrated graph -- much
+smaller than MLX's ~7.7ms base overhead. This strongly suggests the
+same "bytes/bandwidth + fixed overhead(s)" methodology that worked for
+MLX (see above) would work here too, replacing the single ratio.
+**Only one model size (630M) has been tested so far** -- a second real
+measurement at a larger size (7B) was started but not yet complete at
+time of writing; more sizes and at least one MoE GGUF model (e.g. a
+Mixtral or Qwen3-MoE GGUF conversion) are needed before fitting real
+constants.
+
+**What to research:**
+1. Exact bits-per-weight (including block/superblock scale+min
+   overhead, not the nominal marketing number) for every common GGUF
+   quant type (Q4_0, Q4_1, Q4_K_S/M, Q5_0/1, Q5_K_S/M, Q6_K, Q8_0,
+   IQ-series) -- cite `ggml/src/ggml-quants.c` or the block-type structs
+   in `ggml/include/ggml.h` directly (block size in elements, bytes per
+   block).
+2. How llama.cpp's Metal backend (`ggml-metal.m`/`.metal`) dequantizes
+   and computes decode (batch=1) -- is there a real per-token
+   dispatch/kernel-launch floor, and does it vary by quant type the way
+   the table above hints?
+3. How llama.cpp handles MoE GGUF models specifically -- does it read
+   all experts but only compute active ones (matching this project's
+   approach), or does the fused-expert-tensor GGUF format change memory
+   traffic in some other way? Look for GitHub issues/discussions
+   specifically about MoE decode speed on Metal.
+4. Any public `llama-bench` result datasets (GitHub, r/LocalLLaMA
+   benchmark megathreads) across model sizes and quant levels on Apple
+   Silicon, usable as additional calibration points without downloading
+   everything ourselves.
+
+### `probe_vllm.py` -- `VLLM_SINGLE_STREAM_RATIO = 0.55`
+
+Worse off than llama.cpp: based on exactly ONE real comparison (a
+Gemma-4 MLX-vs-vLLM measurement from earlier in this project), and it
+doesn't even run its own probe -- it calls the MLX probe and multiplies
+by this ratio, which conflates vLLM's actual serving engine with
+mlx-lm's, architecturally.
+
+**What to research:**
+1. Is there a real, current vLLM Metal/MPS backend for Apple Silicon as
+   of now? Does it actually reuse mlx-lm's layer implementations (this
+   project's standing assumption) or run its own PyTorch MPS kernels --
+   find and cite the actual source.
+2. How does vLLM's PagedAttention/continuous batching behave at
+   concurrency=1 specifically -- does single-stream vLLM degrade toward
+   native speed, or is it structurally handicapped by batching machinery
+   designed for high concurrency?
+3. Any public vLLM-on-Apple-Silicon benchmarks (GitHub, blog posts,
+   Reddit/HN) usable as additional real calibration points beyond this
+   project's single Gemma-4 measurement.
