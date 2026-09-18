@@ -104,6 +104,23 @@ blune sweep --library mlx             # probe EVERY cached model, one at a
                                        # for this machine's RAM; each probe
                                        # runs in its own subprocess so one
                                        # crash/hang can't kill the sweep
+blune sweep --formula                 # instant config-only math estimate
+                                       # instead of actually running each
+                                       # model -- sweeps the whole cache
+                                       # (thousands of models) in under a
+                                       # second; ~4.8% avg error, 7.0% max
+                                       # (see probe_formula.py)
+blune sweep --compare                 # run BOTH the real probe and the
+                                       # formula for each model, printing
+                                       # both plus the delta, so you can
+                                       # see where the fast estimate is
+                                       # (and isn't) trustworthy
+blune sweep --context 32000           # assume a long-context conversation
+                                       # when estimating speed -- KV-cache
+                                       # read grows with context for most
+                                       # architectures (MLA and sliding-
+                                       # window/hybrid-SSM models degrade
+                                       # far less; see size_estimate.py)
 ```
 
 Add `--offline` to any command to use only the local config cache -- zero
@@ -166,6 +183,19 @@ blune_cli/
 - Windows/Linux discrete-GPU detection uses `nvidia-smi` for VRAM and name,
   but does not query real memory bandwidth the way `hardware.py` does for
   Apple Silicon -- it falls back to a small static table by GPU name match.
+- `probe_formula.py` (the instant, config-only estimate used by
+  `blune sweep --formula`) models MoE active/shared experts, MLA,
+  hybrid Mamba/SSM layers, sliding-window attention, and dense/MoE layer
+  interleaving -- but its per-layer *weight-parameter* count still uses
+  one generic attention+MLP formula for every layer, including Mamba/SSM
+  ones, which have a materially different (and not yet generically
+  parseable from config.json) weight structure. `blune sweep --compare`
+  will show you exactly how far the formula drifts from the real probe on
+  a specific model -- treat a large delta as a sign the model's
+  architecture isn't well-represented by the formula yet, not as the
+  formula being simply "wrong." See `docs/research-findings.md` for the
+  full methodology and `size_estimate.py`'s docstring for the precise
+  list of what is and isn't modeled.
 
 ## License
 
