@@ -156,7 +156,7 @@ def cmd_sweep(args, machine):
     unlike cmd_search_and_rank (which only shows a final table), this is
     built for a run over hundreds/thousands of models where you want to
     see progress accumulate, not wonder if it's still alive."""
-    if args.formula and not machine.bandwidth_gbs:
+    if (args.formula or args.compare) and not machine.bandwidth_gbs:
         ui.error(
             "Unknown machine bandwidth -- the formula estimate needs this. "
             "Run `blune hw` to check what was detected."
@@ -167,7 +167,12 @@ def cmd_sweep(args, machine):
     if args.limit:
         repos = repos[: args.limit]
 
-    mode = "formula (instant, ~7% avg error)" if args.formula else f"real probe, {args.timeout}s/model timeout"
+    if args.compare:
+        mode = "compare (real probe + formula side by side)"
+    elif args.formula:
+        mode = "formula (instant, ~7% avg error)"
+    else:
+        mode = f"real probe, {args.timeout}s/model timeout"
     ui.info(f"sweeping {len(repos)} cached model(s) (library={args.library}, mode={mode})...\n")
 
     machine_key = _machine_key(machine)
@@ -185,6 +190,45 @@ def cmd_sweep(args, machine):
         except Exception as e:
             ui.stream_result(i, len(repos), repo, f"FAILED: {e}", "red")
             failed += 1
+            continue
+
+        if args.compare:
+            try:
+                formula_tps = probe_formula.probe(repo, config, machine.bandwidth_gbs)["estimated_real_tps"]
+            except Exception as e:
+                formula_tps = None
+                formula_err = str(e)
+
+            if machine.total_ram_gb and not size_estimate.fits_in_ram(config, machine.total_ram_gb):
+                text = "SKIPPED: too large for RAM (real)"
+                if formula_tps is not None:
+                    text += f" | {formula_tps} tok/s (formula)"
+                ui.stream_result(i, len(repos), repo, text, "yellow")
+                skipped += 1
+                continue
+
+            ui.stream_in_progress(i, len(repos), repo)
+            try:
+                real_tps = _run_probe_isolated(repo, args.library, args.timeout)["estimated_real_tps"]
+                if formula_tps is not None:
+                    delta = (formula_tps - real_tps) / real_tps * 100
+                    text = f"{real_tps} tok/s (real) vs {formula_tps} tok/s (formula), Δ{delta:+.1f}%"
+                else:
+                    text = f"{real_tps} tok/s (real) | formula FAILED: {formula_err}"
+                ui.stream_result(i, len(repos), repo, text, "cyan")
+                ok += 1
+            except subprocess.TimeoutExpired:
+                text = f"real probe timed out after {args.timeout}s"
+                if formula_tps is not None:
+                    text += f" | {formula_tps} tok/s (formula)"
+                ui.stream_result(i, len(repos), repo, f"FAILED: {text}", "red")
+                failed += 1
+            except Exception as e:
+                text = f"real probe FAILED: {e}"
+                if formula_tps is not None:
+                    text += f" | {formula_tps} tok/s (formula)"
+                ui.stream_result(i, len(repos), repo, text, "red")
+                failed += 1
             continue
 
         if args.formula:
@@ -316,6 +360,12 @@ def main():
         action="store_true",
         help="instant config-only math estimate instead of actually running each model "
         "(much faster, ~7%% avg error -- see probe_formula.py)",
+    )
+    p_sweep.add_argument(
+        "--compare",
+        action="store_true",
+        help="run both the real probe and the formula estimate for each model, "
+        "showing both plus the delta between them",
     )
 
     args = parser.parse_args()

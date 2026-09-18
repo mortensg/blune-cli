@@ -19,6 +19,8 @@ as a real, if provisional, correction factor, not a magic constant.
 """
 from typing import Optional
 
+from .size_estimate import _infer_bits
+
 CALIBRATION_RATIO = 0.82  # probe_tok_s / real_tok_s, averaged across validation runs
 
 
@@ -86,8 +88,22 @@ def probe(
         )
         quant_desc = f"{quantization.get('bits', 4)}-bit (repo's own scheme)"
     else:
-        nn.quantize(model, group_size=64, bits=4, class_predicate=class_predicate)
-        quant_desc = "4-bit (assumed; no quantization info in config)"
+        # No quantization field: this repo could be a genuine 4-bit MLX
+        # conversion that just omitted the field, OR a real unquantized
+        # bf16/fp16 upload -- blindly assuming 4-bit misrepresented the
+        # latter case as ~4x faster/smaller than it really is. Defer to
+        # the config's own declared dtype (same logic size_estimate.py's
+        # RAM pre-filter uses) instead of a fixed guess.
+        inferred_bits = _infer_bits(config)
+        if inferred_bits >= 16:
+            from mlx.utils import tree_map
+
+            dtype = mx.bfloat16 if inferred_bits == 16 else mx.float32
+            model.update(tree_map(lambda x: x.astype(dtype), model.parameters()))
+            quant_desc = f"{inferred_bits}-bit (unquantized, per config's declared dtype)"
+        else:
+            nn.quantize(model, group_size=64, bits=4, class_predicate=class_predicate)
+            quant_desc = "4-bit (assumed; no quantization info in config)"
 
     mx.eval(model.parameters())
 
