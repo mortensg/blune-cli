@@ -77,17 +77,18 @@ single-component-per-layer architecture) drops mean error from 15.8%
 
 Calibration data (M4 Pro, 48GB; see measurements.json for the raw numbers,
 context_length=115 matching this project's own probe's prompt+decode
-range):
-    Qwen3-Coder-30B-A3B-Instruct-4bit:  real 89.8, formula 80.4 (-10.4%)
+range; includes the Qwen3-Next-family q_proj-doubling fix -- see
+_Q_PROJ_MULTIPLIER_BY_MODEL_TYPE in size_estimate.py):
+    Qwen3-Coder-30B-A3B-Instruct-4bit:  real 89.8, formula 80.4 (-10.5%)
     gemma-4-26b-a4b-it-4bit:            real 76.7, formula 91.7 (+19.6%)
     Qwen2.5-Coder-7B-Instruct-4bit:     real 57.2, formula 58.5 (+2.3%)
-    Qwen3.6-35B-A3B-4bit:               real 88.3, formula 90.7 (+2.7%)
-    gpt-oss-20b-OptiQ-4bit:             real 83.6, formula 90.2 (+7.8%)
-    Huihui-LFM2.5-1.2B-Instruct-8bit:   real 176.6, formula 139.4 (-21.0%)
-    LFM2-8B-A1B-3bit-MLX:               real 192.1, formula 212.7 (+10.7%)
+    Qwen3.6-35B-A3B-4bit:               real 88.3, formula 89.0 (+0.8%)
+    gpt-oss-20b-OptiQ-4bit:             real 83.6, formula 90.1 (+7.8%)
+    Huihui-LFM2.5-1.2B-Instruct-8bit:   real 176.6, formula 139.4 (-21.1%)
+    LFM2-8B-A1B-3bit-MLX:               real 192.1, formula 212.8 (+10.8%)
     granite-4.0-h-tiny-6bit-MLX:        real 116.9, formula 107.0 (-8.5%)
-    NVIDIA-Nemotron-3-Nano-30B-A3B-8Bit: real 57.1, formula 55.2 (-3.4%)
-mean absolute error 9.6%, max 21.0% -- worse per-point than the old
+    NVIDIA-Nemotron-3-Nano-30B-A3B-8Bit: real 57.1, formula 55.2 (-3.3%)
+mean absolute error 9.4%, max 21.1% -- worse per-point than the old
 5-point-only fit's 4.5%, but that fit was simply wrong (not just
 imprecise) outside its 5 conventional-architecture calibration set; this
 one generalizes to every architecture family tested so far, including
@@ -165,5 +166,5 @@ def probe(
         "bytes_per_token_active": round(bytes_per_token / 1e6, 1),
         "n_moe_layers": n_moe_layers,
         "estimated_real_tps": round(tps, 1),
-        "confidence": "medium (config-only formula, mean 9.6% error / 21.0% max on 9-point real-measurement set spanning dense, MoE, and 4 hybrid architectures)",
+        "confidence": "medium (config-only formula, mean 9.4% error / 21.1% max on 9-point real-measurement set spanning dense, MoE, and 4 hybrid architectures)",
     }

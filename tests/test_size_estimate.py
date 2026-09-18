@@ -466,6 +466,57 @@ def test_dsa_indexer_matches_real_mlx_lm_layer():
     assert _dsa_indexer_params(c, hidden) == expected
 
 
+def test_bailing_linear_attention_matches_real_mlx_lm_layer():
+    """Exact param count check against mlx_lm.models.bailing_moe_linear's
+    real LinearAttention.__init__ -- a FUSED query_key_value projection
+    (not separate q/k/v matrices, which an earlier research pass
+    guessed wrong), dense output, and g_proj gate. The class hardcodes
+    its own KV head count to equal num_attention_heads internally,
+    ignoring config's num_key_value_heads (that field only applies to
+    this architecture's separate, standard-GQA global Attention class)."""
+    from blune_cli.size_estimate import _bailing_linear_attn_params
+
+    c = {"num_attention_heads": 32, "num_key_value_heads": 4}
+    hidden = 4096
+    head_dim = hidden // 32
+    expected = (
+        hidden * (32 + 2 * 32) * head_dim  # query_key_value (kv forced = heads)
+        + 32 * head_dim * hidden  # dense
+        + hidden * 32 * head_dim  # g_proj
+    )
+    assert _bailing_linear_attn_params(c, hidden) == expected
+
+
+def test_bailing_is_global_layer_pattern_matches_real_source():
+    """Exact per-layer pattern check against
+    mlx_lm.models.bailing_moe_linear.DecoderLayer's real is_global
+    formula -- every layer_group_size-th layer plus any trailing
+    remainder layers are global (standard attention); the rest are
+    LinearAttention (no growing KV-cache)."""
+    from blune_cli.size_estimate import _bailing_is_global_layers
+
+    result = _bailing_is_global_layers({"layer_group_size": 8}, layers=32)
+    expected = [(i + 1) % 8 == 0 or i >= (32 // 8) * 8 for i in range(32)]
+    assert result == expected
+    assert sum(result) == 4  # layers 7, 15, 23, 31 (0-indexed)
+
+
+def test_bailing_moe_linear_layers_excluded_from_kv_growth():
+    config = {
+        "hidden_size": 4096,
+        "num_hidden_layers": 32,
+        "num_attention_heads": 32,
+        "num_key_value_heads": 4,
+        "head_dim": 128,
+        "intermediate_size": 9216,
+        "vocab_size": 157184,
+        "layer_group_size": 8,
+    }
+    a = _analyze(config)
+    assert a.n_ssm_layers == 28
+    assert a.layer_kinds.count("full") == 4
+
+
 def test_fits_in_ram_true_for_small_model():
     config = {
         "hidden_size": 1024,

@@ -56,6 +56,24 @@ _SLIDING_LAYER_TYPES = {"sliding_attention", "local_attention"}
 # single-request estimate.
 _KV_CACHE_BYTES_PER_ELEM = 2
 
+# Per-architecture-family quirks that don't generalize from config.json
+# field presence alone -- each entry here is verified against mlx-lm's
+# real source, not inferred from a heuristic. A plausible-looking generic
+# rule was tried and rejected for this specific case: the config field
+# `attn_output_gate: true` looked like it might signal q_proj doubling,
+# but Gemma4 also sets it without doubling its own q_proj -- using it
+# generically would have silently broken Gemma4's already-validated
+# attention param count to fix Qwen3-Next's. Keyed by model_type instead.
+# mlx_lm.models.qwen3_next.Qwen3NextAttention.q_proj outputs
+# num_attention_heads*head_dim*2 (packs query + an output gate vector
+# into one GEMM); qwen3_5.py and qwen3_5_moe.py both import this same
+# Attention class for their "full attention" layers.
+_Q_PROJ_MULTIPLIER_BY_MODEL_TYPE = {
+    "qwen3_next": 2.0,
+    "qwen3_5": 2.0,
+    "qwen3_5_moe": 2.0,
+}
+
 
 def _infer_bits(config: dict, path_hint: str = "") -> int:
     """Bits-per-weight: prefer an explicit quantization config (honoring
@@ -185,6 +203,43 @@ def _lfm2_conv_params(c: dict, hidden: int) -> Optional[float]:
     return in_proj + conv + out_proj
 
 
+def _bailing_linear_attn_params(c: dict, hidden: int) -> Optional[float]:
+    """Exact param count for InclusionAI/Ring's Lightning Attention layer
+    (bailing_moe_linear's real LinearAttention class), matching
+    mlx_lm.models.bailing_moe_linear.LinearAttention.__init__ exactly:
+    a FUSED query_key_value projection (not separate q/k/v matrices --
+    an earlier research pass guessed wrong here), a `dense` output
+    projection, and a `g_proj` gate. The class hardcodes its own KV head
+    count to always equal num_attention_heads internally (ignoring
+    config's num_key_value_heads, which only applies to this
+    architecture's separate, standard-GQA `Attention` class used on
+    "global" layers -- see _bailing_is_global_layers)."""
+    heads = c.get("num_attention_heads")
+    if not heads:
+        return None
+    head_dim = hidden // heads
+
+    qkv = hidden * (heads + 2 * heads) * head_dim  # kv_heads forced equal to heads
+    dense = heads * head_dim * hidden
+    g_proj = hidden * heads * head_dim
+
+    return qkv + dense + g_proj
+
+
+def _bailing_is_global_layers(c: dict, layers: int) -> Optional[list]:
+    """Per-layer True/False for whether a bailing_moe_linear layer uses
+    standard (global) Attention vs. LinearAttention, matching
+    mlx_lm.models.bailing_moe_linear.DecoderLayer's exact formula:
+    every layer_group_size-th layer, plus any trailing remainder
+    layers, is global. Not a layer_types list or a simple modulo --
+    verified against the real source rather than guessed."""
+    group_size = c.get("layer_group_size")
+    if not group_size:
+        return None
+    cutoff = (layers // group_size) * group_size
+    return [(i + 1) % group_size == 0 or i >= cutoff for i in range(layers)]
+
+
 def _ssm_layer_params(c: dict, hidden: int, fallback: float) -> float:
     """Best-available SSM/hybrid-layer weight param count: a real layer
     implementation's exact formula if the config has the fields for one,
@@ -195,6 +250,7 @@ def _ssm_layer_params(c: dict, hidden: int, fallback: float) -> float:
         or _mamba2_ssm_params(c, hidden)
         or _lfm2_conv_params(c, hidden)
         or _mamba_ssm_params(c, hidden)
+        or (c.get("layer_group_size") and _bailing_linear_attn_params(c, hidden))
         or fallback
     )
 
@@ -385,7 +441,13 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
     is_mla = bool(kv_lora_rank and qk_rope_head_dim)
 
     if heads and kv_heads and head_dim:
-        attn_weight_params_per_layer = 2 * hidden * (heads * head_dim) + 2 * hidden * (kv_heads * head_dim)
+        q_multiplier = _Q_PROJ_MULTIPLIER_BY_MODEL_TYPE.get(
+            config.get("model_type") or c.get("model_type"), 1.0
+        )
+        q_proj = hidden * (heads * head_dim) * q_multiplier
+        o_proj = hidden * (heads * head_dim)  # o_proj reads the (non-doubled) attention output
+        kv_proj = 2 * hidden * (kv_heads * head_dim)
+        attn_weight_params_per_layer = q_proj + o_proj + kv_proj
     else:
         attn_weight_params_per_layer = 4 * hidden * hidden
 
@@ -416,11 +478,17 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
     # sliding-window layers (KV capped at sliding_window) vs. full attention
     sliding_window = c.get("sliding_window")
     layer_types = c.get("layer_types")
+    bailing_is_global = _bailing_is_global_layers(c, layers)
     if isinstance(layer_types, list) and len(layer_types) == layers:
         layer_kinds = [
             "ssm" if t in _SSM_LAYER_TYPES else "sliding" if t in _SLIDING_LAYER_TYPES else "full"
             for t in layer_types
         ]
+    elif bailing_is_global is not None:
+        # bailing_moe_linear: LinearAttention layers have no growing
+        # KV-cache (a fixed recurrent state, like GatedDeltaNet/Mamba);
+        # only the "global" layers use standard attention.
+        layer_kinds = ["full" if g else "ssm" for g in bailing_is_global]
     elif sliding_window:
         # No per-layer info to say which layers are sliding vs. full -- if
         # sliding_window is declared at all, the common case (Mistral-style)
