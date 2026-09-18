@@ -78,17 +78,20 @@ single-component-per-layer architecture) drops mean error from 15.8%
 Calibration data (M4 Pro, 48GB; see measurements.json for the raw numbers,
 context_length=115 matching this project's own probe's prompt+decode
 range; includes the Qwen3-Next-family q_proj-doubling fix -- see
-_Q_PROJ_MULTIPLIER_BY_MODEL_TYPE in size_estimate.py):
-    Qwen3-Coder-30B-A3B-Instruct-4bit:  real 89.8, formula 80.4 (-10.5%)
-    gemma-4-26b-a4b-it-4bit:            real 76.7, formula 91.7 (+19.6%)
-    Qwen2.5-Coder-7B-Instruct-4bit:     real 57.2, formula 58.5 (+2.3%)
-    Qwen3.6-35B-A3B-4bit:               real 88.3, formula 89.0 (+0.8%)
-    gpt-oss-20b-OptiQ-4bit:             real 83.6, formula 90.1 (+7.8%)
-    Huihui-LFM2.5-1.2B-Instruct-8bit:   real 176.6, formula 139.4 (-21.1%)
-    LFM2-8B-A1B-3bit-MLX:               real 192.1, formula 212.8 (+10.8%)
-    granite-4.0-h-tiny-6bit-MLX:        real 116.9, formula 107.0 (-8.5%)
-    NVIDIA-Nemotron-3-Nano-30B-A3B-8Bit: real 57.1, formula 55.2 (-3.3%)
-mean absolute error 9.4%, max 21.1% -- worse per-point than the old
+_Q_PROJ_MULTIPLIER_BY_MODEL_TYPE in size_estimate.py -- and, as of the
+most recent refit, the mixed-quantization-manifest and quantization-
+metadata bytes-per-token fixes documented further down):
+    Qwen3-Coder-30B-A3B-Instruct-4bit:  real 89.8, formula 81.1 (-9.7%)
+    gemma-4-26b-a4b-it-4bit:            real 76.7, formula 92.1 (+20.1%)
+    Qwen2.5-Coder-7B-Instruct-4bit:     real 57.2, formula 57.2 (+0.1%)
+    Qwen3.6-35B-A3B-4bit:               real 88.3, formula 87.4 (-1.0%)
+    gpt-oss-20b-OptiQ-4bit:             real 83.6, formula 83.5 (-0.2%)
+    Huihui-LFM2.5-1.2B-Instruct-8bit:   real 176.6, formula 148.3 (-16.0%)
+    LFM2-8B-A1B-3bit-MLX:               real 192.1, formula 217.1 (+13.0%)
+    granite-4.0-h-tiny-6bit-MLX:        real 116.9, formula 111.4 (-4.7%)
+    NVIDIA-Nemotron-3-Nano-30B-A3B-8Bit: real 57.1, formula 57.2 (+0.3%)
+mean absolute error 7.2%, max 20.1% (previously 9.4%/21.1% before the
+two bytes-per-token fixes below) -- worse per-point than the old
 5-point-only fit's 4.5%, but that fit was simply wrong (not just
 imprecise) outside its 5 conventional-architecture calibration set; this
 one generalizes to every architecture family tested so far, including
@@ -110,22 +113,68 @@ Honesty notes on the three fitted constants:
   the direct micro-benchmark's ~200us-per-call finding within a
   reasonable factor (real decode-loop kernel fusion is plausibly more
   efficient than an isolated Python-level benchmark call).
-- LFM2.5-1.2B (-21.0%) remains the worst-fit point, and has ZERO MoE
-  layers -- its own remaining problem was root-caused separately (see
-  formula-accuracy-gap.md): its real decode time (~5.66ms/token) is
-  close to or below what a "typical" model's fixed overhead would be,
-  and no single global BASE_OVERHEAD_SEC can be simultaneously right for
-  a model this fast and for the original 24-48-layer calibration set.
-  Re-fit all three constants if/when more real measurements (especially
-  more small/fast dense-hybrid models) become available.
+- LFM2.5-1.2B (-16.0% after the refit below) remains a bad-fit point,
+  and has ZERO MoE layers -- its own remaining problem was root-caused
+  separately (see formula-accuracy-gap.md): its real decode time
+  (~5.66ms/token) is close to or below what a "typical" model's fixed
+  overhead would be, and no single global BASE_OVERHEAD_SEC can be
+  simultaneously right for a model this fast and for the original
+  24-48-layer calibration set.
+
+Two real bytes-per-token bugs found and fixed, both confirmed against
+real source and re-fit against the same 9 measurements (not just
+patched in place -- a systematic bytes-per-token change shifts what
+BANDWIDTH_CALIBRATION_RATIO should be, so refitting rather than
+re-using the old constants was required to avoid double-counting):
+
+1. `estimate_active_bytes_per_token` used a single repo-wide `bits` for
+   every weight, even on repos whose `quantization` manifest lists
+   *per-tensor* bit-widths -- confirmed real on a cached
+   `Youssofal/Qwen3.6-35B-A3B-Abliterated-Heretic-MLX-4bit` config: 512
+   explicit per-tensor entries, 147 of them at 6-bit (routed + shared
+   expert FFNs, lm_head) against a 4-bit repo default.
+   `probe_mlx.py`'s real `nn.quantize(..., class_predicate=...)` already
+   honors these overrides (read directly from its source), so this
+   specific model's formula-vs-probe comparison was bytes-mismatched,
+   not actually revealing a formula error of the size it looked like.
+   Fixed by looking up bits separately for routed-expert (`switch_mlp`),
+   shared-expert (`shared_expert`), and `lm_head` weights when a
+   per-tensor manifest is present (`_effective_bits`/`_infer_bits` with
+   a `path_hint` in size_estimate.py) -- NOT extended to mixer
+   sub-projections (q/k/v/o) or the router, since those components'
+   real attribute names vary too much across architecture families to
+   match safely by substring, and in this specific model they're a
+   smaller share of active bytes than the expert FFNs and lm_head
+   already fixed.
+2. No byte computation anywhere included quantization's per-group
+   scale/bias metadata -- affine quantization (MLX's default) stores an
+   fp16 scale AND fp16 bias per group of `group_size` packed weights,
+   which `bits/8` alone ignores. At the common group_size=64, 4-bit:
+   nominal 0.5 bytes/weight vs. real 0.5+4/64=0.5625 bytes/weight, a
+   flat 12.5% miss on every quantized model, not just outliers. Added as
+   `_effective_bits()` in size_estimate.py (bits + 32/group_size, i.e.
+   +32 metadata bits per group), applied everywhere bytes are computed.
+
+Re-running the same 3-parameter least-squares fit against the same 9
+measurements with these two fixes applied dropped mean error from 9.4%
+to **7.2%** (max 21.1% -> 20.1%), confirming the byte-accounting fixes
+were net real improvements and not just noise absorbed by refitting --
+they moved points in both directions relative to the old fit (some
+better, none catastrophically worse), which is what a genuine bytes
+correction should do, unlike a parameter that's just curve-fitting to
+this particular 9-point set. On the untouched-by-calibration held-out
+case that motivated fix #1 (Youssofal's abliterated fine-tune), error
+vs. `probe_mlx.py` fell from a freshly-remeasured +33.6% to +14.9% --
+more than half the gap closed by two verified, mechanistic bugs rather
+than a curve-fitting trick.
 """
 from typing import Optional
 
 from .size_estimate import count_moe_layers, estimate_active_bytes_per_token
 
-BANDWIDTH_CALIBRATION_RATIO = 0.727  # see module docstring -- empirical, from 9-point regression
-BASE_OVERHEAD_SEC = -0.000758  # see module docstring -- fit value, not a literal negative dispatch time
-MOE_LAYER_OVERHEAD_SEC = 0.000114  # per-MoE-layer dispatch cost, confirmed by direct MLX micro-benchmark
+BANDWIDTH_CALIBRATION_RATIO = 0.7891  # see module docstring -- empirical, refit after 2 real bytes-per-token fixes
+BASE_OVERHEAD_SEC = -0.001022  # see module docstring -- fit value, not a literal negative dispatch time
+MOE_LAYER_OVERHEAD_SEC = 0.000112  # per-MoE-layer dispatch cost, confirmed by direct MLX micro-benchmark
 
 
 def probe(
@@ -166,5 +215,5 @@ def probe(
         "bytes_per_token_active": round(bytes_per_token / 1e6, 1),
         "n_moe_layers": n_moe_layers,
         "estimated_real_tps": round(tps, 1),
-        "confidence": "medium (config-only formula, mean 9.4% error / 21.1% max on 9-point real-measurement set spanning dense, MoE, and 4 hybrid architectures)",
+        "confidence": "medium (config-only formula, mean 7.2% error / 20.1% max on 9-point real-measurement set spanning dense, MoE, and 4 hybrid architectures)",
     }

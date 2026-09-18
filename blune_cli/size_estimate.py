@@ -102,6 +102,48 @@ def _infer_bits(config: dict, path_hint: str = "") -> int:
     return 4  # last resort: most curated repos are 4-bit MLX conversions
 
 
+def _infer_group_size(config: dict, path_hint: str = "") -> int:
+    """Quantization group size for the same path (mirrors _infer_bits) --
+    needed alongside bits to compute the real per-group scale/bias
+    metadata overhead below. MLX's own default when a repo's manifest
+    doesn't state one is 64 (see e.g. mlx_lm's own `default_group_size`
+    fallback in probe_mlx.py, matched here for consistency)."""
+    quant = config.get("quantization") or config.get("quantization_config")
+    if isinstance(quant, dict):
+        if path_hint:
+            for key, override in quant.items():
+                if path_hint in key and isinstance(override, dict) and "group_size" in override:
+                    return override["group_size"]
+        if "group_size" in quant:
+            return quant["group_size"]
+    return 64
+
+
+def _effective_bits(config: dict, path_hint: str = "") -> float:
+    """Real bytes-per-weight for a genuinely quantized tensor is NOT just
+    bits/8 -- affine quantization (MLX's default, and GGUF's K-quants)
+    stores one fp16 scale AND one fp16 bias per group of `group_size`
+    packed weights, alongside the packed integer data itself. Ignoring
+    this metadata undercounts every quantized model's real weight bytes
+    by a fixed amount depending on group_size (e.g. group_size=64,
+    4-bit: nominal 0.5 bytes/weight vs. real 0.5+4/64=0.5625 bytes/weight,
+    a 12.5% miss -- smaller at group_size=128, larger at group_size=32).
+    Folded in as "effective bits" (bits + 32/group_size, since 2*fp16 =
+    4 bytes = 32 bits of metadata per group) so every existing `bits/8`
+    call site below only needs this drop-in instead of bits/8 -- see
+    probe_formula.py's docstring for why BANDWIDTH_CALIBRATION_RATIO had
+    to be refit after adding this (it was silently absorbing this same
+    ~12.5% gap as part of its own fitted value before this existed).
+    Only applies when the config declares a real quantization scheme --
+    an unquantized fp16/bf16 repo has no packing metadata to add."""
+    quant = config.get("quantization") or config.get("quantization_config")
+    bits = _infer_bits(config, path_hint)
+    if isinstance(quant, dict):
+        group_size = _infer_group_size(config, path_hint)
+        return bits + 32.0 / group_size
+    return float(bits)
+
+
 def _gated_delta_net_params(c: dict, hidden: int) -> Optional[float]:
     """Exact param count for Qwen3.5/3.6/3-Next's GatedDeltaNet linear-
     attention layer, matching mlx_lm.models.gated_delta.GatedDeltaNet's
@@ -419,6 +461,8 @@ class ArchProfile:
     mlp_moe_active_params: float  # per MoE-layer active params (routed + shared, excl. router)
     mlp_moe_total_params: float  # per MoE-layer total params (all routed + shared)
     router_params_per_moe_layer: float
+    routed_active_params_per_layer: float  # just the routed-expert slice of mlp_moe_active_params
+    shared_active_params_per_layer: float  # just the shared-expert slice of mlp_moe_active_params
 
 
 def _analyze(config: dict) -> Optional[ArchProfile]:
@@ -547,10 +591,14 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
         moe_inter = c.get("moe_intermediate_size") or c.get("intermediate_size") or 4 * hidden
         routed_expert_params = 3 * hidden * moe_inter
         shared_expert_params = 3 * hidden * (shared_expert_inter or moe_inter)
-        mlp_moe_active_params = routed_expert_params * experts_per_tok + shared_expert_params * n_shared_experts
+        routed_active_params_per_layer = routed_expert_params * experts_per_tok
+        shared_active_params_per_layer = shared_expert_params * n_shared_experts
+        mlp_moe_active_params = routed_active_params_per_layer + shared_active_params_per_layer
         mlp_moe_total_params = routed_expert_params * n_experts + shared_expert_params * n_shared_experts
         router_params_per_moe_layer = hidden * n_experts + (hidden if n_shared_experts else 0)
     else:
+        routed_active_params_per_layer = 0.0
+        shared_active_params_per_layer = 0.0
         mlp_moe_active_params = 0.0
         mlp_moe_total_params = 0.0
         router_params_per_moe_layer = 0.0
@@ -591,6 +639,8 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
         mlp_moe_active_params=mlp_moe_active_params,
         mlp_moe_total_params=mlp_moe_total_params,
         router_params_per_moe_layer=router_params_per_moe_layer,
+        routed_active_params_per_layer=routed_active_params_per_layer,
+        shared_active_params_per_layer=shared_active_params_per_layer,
     )
 
 
@@ -626,9 +676,9 @@ def estimate_bytes(config: dict) -> Optional[int]:
     if a is None:
         return None
 
-    bits = _infer_bits(config)
-    embed_bits = _infer_bits(config, path_hint="embed_tokens")
-    lm_head_bits = _infer_bits(config, path_hint="lm_head")
+    bits = _effective_bits(config)
+    embed_bits = _effective_bits(config, path_hint="embed_tokens")
+    lm_head_bits = _effective_bits(config, path_hint="lm_head")
 
     weight_params = estimate_total_params(config) - 2 * a.vocab * a.hidden
     total_bytes = weight_params * bits / 8
@@ -660,7 +710,7 @@ def estimate_active_bytes_per_token(config: dict, context_length: int = 128) -> 
     """
     nemotron = _nemotron_h_estimate(config)
     if nemotron is not None:
-        bits = _infer_bits(config)
+        bits = _effective_bits(config)
         active_weight_bytes = nemotron["active_params"] * bits / 8
         kv_bytes_per_layer = nemotron["kv_elems_per_token"] * _KV_CACHE_BYTES_PER_ELEM
         kv_bytes = nemotron["n_full_attn_layers"] * kv_bytes_per_layer * context_length
@@ -670,17 +720,48 @@ def estimate_active_bytes_per_token(config: dict, context_length: int = 128) -> 
     if a is None:
         return None
 
-    bits = _infer_bits(config)
+    bits = _effective_bits(config)
+
+    # Some community conversions ("Heretic"/"OptiQ"-style abliterated
+    # fine-tunes seen in this project's own cache) quantize per-TENSOR,
+    # not per-repo -- e.g. a real cached Youssofal/Qwen3.6-35B-A3B-*
+    # config's `quantization` dict has 512 explicit per-tensor entries,
+    # 147 of them at 6-bit (switch_mlp/shared_expert/o_proj/lm_head)
+    # against a 4-bit repo default. A single repo-wide `bits` silently
+    # treated all of those as 4-bit, undercounting active bytes for
+    # exactly the two components (routed + shared expert FFNs) that
+    # dominate a MoE model's active-byte budget -- probe_mlx.py's real
+    # `nn.quantize(..., class_predicate=...)` already honors these
+    # per-tensor overrides (confirmed by reading probe_mlx.py's source),
+    # so a MoE model with this kind of manifest was being compared
+    # formula-vs-probe on a bytes mismatch, not a real formula error.
+    # Only the two highest-mass MoE components are split out below --
+    # mixer sub-projections (q/k/v/o) and the router aren't, since their
+    # real attribute names vary too much across architecture families to
+    # match safely by substring; this recovers most of the effect since
+    # expert FFN weights dwarf mixer params in any MoE model.
+    routed_bits = _effective_bits(config, path_hint="switch_mlp") if a.n_experts else bits
+    shared_bits = _effective_bits(config, path_hint="shared_expert") if a.n_shared_experts else bits
+    # estimate_bytes() (RAM sizing) already special-cases lm_head bits;
+    # this per-decode-step path had the same repo-wide-`bits` blind spot
+    # as the MoE terms above -- lm_head is read every decode step and was
+    # also found overridden to 6-bit in the real Youssofal manifest above.
+    lm_head_bits = _effective_bits(config, path_hint="lm_head")
 
     # 1. active weight bytes
     active_params = 0.0
+    active_moe_bytes = 0.0
     moe_mask = a.moe_layer_mask or [False] * a.layers
     for i in range(a.layers):
         mixer = a.ssm_weight_params_per_layer if a.layer_kinds[i] == "ssm" else a.attn_weight_params_per_layer
-        mlp = (a.mlp_moe_active_params + a.router_params_per_moe_layer) if moe_mask[i] else a.mlp_dense_params
-        active_params += mixer + mlp
-    active_params += a.vocab * a.hidden  # lm_head projection, read every decode step
-    active_weight_bytes = active_params * bits / 8
+        if moe_mask[i]:
+            active_params += mixer + a.router_params_per_moe_layer
+            active_moe_bytes += a.routed_active_params_per_layer * routed_bits / 8
+            active_moe_bytes += a.shared_active_params_per_layer * shared_bits / 8
+        else:
+            active_params += mixer + a.mlp_dense_params
+    active_weight_bytes = active_params * bits / 8 + active_moe_bytes
+    active_weight_bytes += a.vocab * a.hidden * lm_head_bits / 8  # lm_head, read every decode step
 
     kv_bytes = _kv_bytes(a, context_length)
     return int(active_weight_bytes + kv_bytes)

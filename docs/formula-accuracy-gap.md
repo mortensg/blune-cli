@@ -86,7 +86,7 @@ as `_bailing_linear_attn_params` / `_bailing_is_global_layers` in
 `Ring-flash-linear-2.0-128k-4bit` config (28/32 layers correctly
 identified as LinearAttention).
 
-## 3. Qwen3-Next's doubled `q_proj` -- implemented, didn't close the hold-out gap
+## 3. Qwen3-Next's doubled `q_proj` -- implemented; hold-out gap now mostly resolved via item 3b
 
 `Qwen3NextAttention.q_proj` outputs `num_attention_heads * head_dim * 2`
 in mlx-lm's real implementation. Confirmed independently twice now
@@ -99,12 +99,79 @@ rejected earlier after confirming Gemma4 sets that field too without
 doubling its own `q_proj`.
 
 Effect: modestly improved the in-sample calibration point
-(`Qwen3.6-35B-A3B-4bit`: -2.7% -> +0.8% error) but barely moved the
-held-out hybrid models' error (`Youssofal/Qwen3.6-35B-A3B-*`: still
-+26-30% vs. the zero-download probe, down from +26-38%). The q_proj
-quirk was real but was not the dominant remaining error source for
-those specific models -- see item 5, which likely explains most of
-what's left (they're also MoE).
+(`Qwen3.6-35B-A3B-4bit`: -2.7% -> +0.8% error) but on its own barely
+moved the held-out hybrid models' error. The real dominant cause was
+found separately -- see 3b below.
+
+### 3b. Held-out `Youssofal/Qwen3.6-35B-A3B-*` gap -- root-caused and mostly closed
+
+A third research pass (asked to explain the remaining +26-30% gap)
+fabricated a plausible-looking `quantization.overrides` JSON schema with
+wildcard tensor-name patterns -- **that specific schema does not exist**
+in mlx-lm/MLX's real quantization manifest format. But reading the
+actual cached `Youssofal/Qwen3.6-35B-A3B-Abliterated-Heretic-MLX-4bit`
+config.json (already in this project's own cache) confirmed the
+*underlying claim* was real, just described with the wrong shape: a
+**flat, per-tensor** `quantization` dict (515 keys: 3 global defaults +
+512 explicit per-tensor `{group_size, bits, mode}` entries), 147 of
+which are explicitly 6-bit against a 4-bit repo default -- concentrated
+in `mlp.switch_mlp.*` (routed experts), `mlp.shared_expert.*`, `lm_head`,
+and a non-uniform subset of attention/linear-attn output projections.
+
+`size_estimate.py`'s `_infer_bits()` already *had* per-tensor-manifest
+lookup support (via its `path_hint` parameter) but no call site ever
+used it for anything beyond `embed_tokens`/`lm_head` in the RAM-sizing
+path -- the actual speed-formula path (`estimate_active_bytes_per_token`)
+used one flat repo-wide `bits` for everything, silently treating all 147
+of those 6-bit tensors as 4-bit. `probe_mlx.py`'s real
+`nn.quantize(..., class_predicate=...)` already honors these per-tensor
+overrides correctly (confirmed by reading its source) -- so this
+specific model's formula-vs-probe comparison was a bytes mismatch
+between the two, not a discovery about formula correctness at the size
+it appeared to be.
+
+Fixed by looking up bits separately for routed-expert (`switch_mlp`),
+shared-expert (`shared_expert`), and `lm_head` weights when a
+per-tensor manifest is present. Not extended to individual mixer
+sub-projections (q/k/v/o) or the router -- those overrides in this repo
+are non-uniform *within* a component across layers (e.g. only 6 of 10
+full-attention layers' `o_proj` are bumped to 6-bit, not all of them),
+which `_infer_bits`'s current first-match-wins lookup can't represent
+correctly; estimated impact of adding that too is a further ~2-3
+points on this one model, not pursued given the added per-architecture
+fragility for a shrinking return.
+
+Alongside this, found and fixed a second, more universal bug (see item
+6) -- quantization metadata bytes (scale/bias) were missing everywhere,
+not just on mixed-precision repos. With both fixes and a required
+refit of the 3 global constants (see `probe_formula.py`'s docstring):
+this held-out model's error vs. `probe_mlx.py` fell from a freshly
+remeasured **+33.6% to +14.9%**, and the in-sample 9-point mean error
+fell from 9.4% to **7.2%** (max 21.1% -> 20.1%) -- a real, verified
+improvement on the calibration set itself, not just the one outlier
+that motivated the investigation.
+
+**Still open:** the remaining ~15% on this specific held-out model is
+now most plausibly `probe_mlx.py`'s own known ~15-19% synthetic-probe
+deficit (item 4) rather than a formula bug, since the two mechanistic,
+source-verified bytes bugs found here have both been fixed. Confirming
+that requires closing item 4 (a real native-execution comparison), not
+another config-level fix.
+
+## 6. Quantization metadata bytes (scale/bias) missing from every byte estimate -- RESOLVED
+
+Every `bits/8` computation in `size_estimate.py` ignored the per-group
+scale + bias metadata that affine quantization (MLX's default) always
+stores alongside packed weights -- one fp16 scale and one fp16 bias per
+group of `group_size` weights. At the common `group_size=64`, 4-bit:
+nominal 0.5 bytes/weight vs. real 0.5+4/64=0.5625 bytes/weight, a flat
+12.5% miss on *every* quantized model, not just mixed-precision ones.
+Fixed via `_effective_bits()` (bits + 32/group_size), applied at every
+call site that used to call `_infer_bits()` directly for byte math.
+Required refitting `probe_formula.py`'s 3 constants against the same 9
+measurements (a systematic bytes-per-token change shifts what
+`BANDWIDTH_CALIBRATION_RATIO` should be) -- see item 3b for the combined
+before/after numbers from this fix plus the mixed-quantization fix.
 
 ## 4. `probe_mlx.py`'s own ~15-19% synthetic-probe deficit -- one hypothesis ruled out
 
