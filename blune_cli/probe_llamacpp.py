@@ -7,16 +7,64 @@ tensor's name, shape and quantization type BEFORE any tensor data, so we can
 still get exact bytes-per-token without downloading weight data: fetch only
 the header via an HTTP range request, sum the byte size of the tensors that
 matter for one decode step (all of them, for a dense model; only the active
-experts' share for MoE, approximated from Q_ffn count if declared).
+experts' share for MoE -- confirmed mechanistically correct, not just
+convenient, by reading llama.cpp's real Metal MoE kernel: `mul_mv_id`
+(ggml/src/ggml-metal/kernels/mul_mv.metal) reads the selected expert index
+per token and pointer-offsets directly into the fused per-layer expert
+tensor by that expert's own stride, touching only the selected experts'
+bytes during single-token decode).
 
-Honesty note: we do NOT have a real, measured llama.cpp calibration ratio
-the way we do for MLX (validated three times against real generations
-today). GGUF_CALIBRATION_RATIO below is a placeholder seeded from the MLX
-ratio plus llama.cpp's generally-lower Metal efficiency (per our own
-earlier research: MLX beats llama.cpp by 20-87% on Apple Silicon). Treat
-estimated_real_tps from this module as lower-confidence than the MLX probe
-until someone runs `blune bench --contribute-llamacpp` (not yet built) to
-replace it with a real number.
+Methodology (mirrors probe_formula.py's MLX methodology exactly)
+------------------------------------------------------------------
+tok/s = bandwidth / bytes-per-token, corrected by two constants fit via
+linear regression against 5 real measurements (Apple M4 Pro, 273 GB/s,
+`llama-bench`, Qwen2.5-0.5B-Instruct-GGUF across 4 quant levels + one
+Qwen2.5-7B-Instruct-GGUF Q4_K_M point to check size-dependence):
+
+    time_per_token = bytes_per_token / (bandwidth * BANDWIDTH_CALIBRATION_RATIO)
+                      + FIXED_OVERHEAD_SEC
+
+| Model | Real tok/s | Formula | Error |
+|---|---|---|---|
+| Qwen2.5-0.5B Q4_0   | 307.56 | 327.59 | +6.5% |
+| Qwen2.5-0.5B Q4_K_M | 269.81 | 297.90 | +10.4% |
+| Qwen2.5-0.5B Q6_K   | 256.85 | 242.26 | -5.7% |
+| Qwen2.5-0.5B Q8_0   | 256.10 | 235.24 | -8.1% |
+| Qwen2.5-7B Q4_K_M   | 49.07  | 49.15  | +0.2% |
+mean absolute error 6.2%, max 10.4% -- fit on only 5 points spanning one
+architecture family (Qwen2, dense) at one size regime (0.5B/7B), so
+treat this as a first real anchor, not a fully validated formula. This
+still massively improves on the previous flat `GGUF_CALIBRATION_RATIO =
+0.60` guess, which gave 17.1% mean / 28.7% max error on these same 5
+points (it wasn't derived from any real llama.cpp measurement at all --
+see git history). BANDWIDTH_CALIBRATION_RATIO (~0.755, i.e. real
+bandwidth utilization closer to 100% of spec than MLX's own ~0.73-1.35x
+range across different formula versions) and FIXED_OVERHEAD_SEC
+(~1.0ms) are both far smaller-magnitude corrections than MLX needed,
+consistent with llama.cpp being a compiled C++ binary with a single
+Metal command buffer per token (confirmed: `ggml-metal.cpp` defaults
+`n_cb=1`) rather than a Python-orchestrated MLX graph.
+
+Bug fixed alongside this recalibration: `_GGML_TYPE_BITS` had a real
+ID-mapping error (not a precision issue) -- comparing enum IDs against
+ggml's own block-struct byte layout (ggml/src/ggml-common.h) found
+Q2_K and Q3_K were priced at roughly 2x their real bytes (the table had
+been built by listing nominal bits-per-weight values in name order and
+assigning them sequentially to enum IDs, but the real enum has a gap at
+IDs 4-5 for retired types, shifting every K-quant/IQ value onto the
+wrong ID). Fixed using the verified struct-derived table; several
+quant types in real use (MXFP4 -- used by real gpt-oss GGUF releases,
+IQ-series, TQ1_0/TQ2_0, BF16) were also simply missing before and fell
+through to a default guess.
+
+Known gaps, honestly: only one architecture family (Qwen2 dense) and
+one machine have been measured; no real MoE GGUF data point exists yet
+despite the MoE byte-accounting itself being verified correct at the
+kernel level (see above) -- the *speed* impact of MoE-specific Metal
+dispatch overhead (analogous to MLX's measured ~178us/MoE-layer) is
+still unknown for llama.cpp. See docs/formula-accuracy-gap.md for the
+prioritized list of what a follow-up real-measurement session should
+test next.
 """
 import struct
 from typing import Optional
@@ -24,7 +72,8 @@ from typing import Optional
 import requests
 
 GGUF_MAGIC = 0x46554747  # "GGUF" little-endian
-GGUF_CALIBRATION_RATIO = 0.60  # provisional -- see module docstring
+BANDWIDTH_CALIBRATION_RATIO = 0.755  # see module docstring -- fit from 5 real measurements
+FIXED_OVERHEAD_SEC = 0.0010  # per-decode-step dispatch cost, fit from real data
 
 _GGUF_TYPE_SIZES = {
     0: 4,   # F32
@@ -32,13 +81,47 @@ _GGUF_TYPE_SIZES = {
     2: 1,   # Q4_0 unused directly; block types handled via block size below
 }
 
-# Approximate bits-per-weight for common GGUF quant types (block-quantized
-# formats don't map to a clean "bytes per element" the way MLX's affine
-# quant does, so these are the well-known nominal bits-per-weight figures).
+# Exact bits-per-weight per ggml_type enum ID, derived from each block
+# struct's real byte layout (bytes_per_block * 8 / elements_per_block),
+# not the "well-known" nominal figures -- verified directly against
+# ggml/src/ggml-common.h's block struct definitions and ggml/include
+# /ggml.h's enum ggml_type. The previous version of this table listed
+# nominal bpw values in {Q4_0,Q4_1,Q5_0,Q5_1,Q8_0,Q8_1,Q2_K,Q3_K,Q4_K,
+# Q5_K,Q6_K,Q8_K,IQ2_XXS,IQ2_XS,IQ3_XXS} order and assigned them
+# SEQUENTIALLY to enum IDs {0,1,2,3,6,7,8,9,10,11,12,13,14,15,16,17,18}
+# -- but the real enum has a gap at IDs 4-5 (retired Q4_2/Q4_3), which
+# silently shifted every K-quant/IQ value onto the wrong ID. Real-world
+# impact: any Q2_K or Q3_K tensor was priced at ~2x its actual bytes.
 _GGML_TYPE_BITS = {
-    0: 32, 1: 16, 2: 4.5, 3: 4.5, 6: 5.5, 7: 5.5, 8: 8.5, 9: 8.5,
-    10: 5.0, 11: 6.5625, 12: 4.5, 13: 4.5, 14: 5.5, 15: 6.5625,
-    16: 3.4375, 17: 3.5, 18: 2.5,
+    0: 32.0,       # F32
+    1: 16.0,       # F16
+    2: 4.5,        # Q4_0: d(half) + qs[16], 32-elem block
+    3: 5.0,        # Q4_1: d,m(2xhalf) + qs[16]
+    6: 5.5,        # Q5_0: d(half) + qh[4] + qs[16]
+    7: 6.0,        # Q5_1: d,m(2xhalf) + qh[4] + qs[16]
+    8: 8.5,        # Q8_0: d(half) + qs[32]
+    9: 9.0,        # Q8_1: activation-only, not a stored weight tensor
+    10: 2.625,     # Q2_K: 256-elem superblock, 84 bytes/block
+    11: 3.4375,    # Q3_K
+    12: 4.5,       # Q4_K
+    13: 5.5,       # Q5_K
+    14: 6.5625,    # Q6_K
+    15: 9.125,     # Q8_K: activation-only intermediate, not a stored weight tensor
+    16: 2.0625,    # IQ2_XXS
+    17: 2.3125,    # IQ2_XS
+    18: 3.0625,    # IQ3_XXS
+    19: 1.5625,    # IQ1_S
+    20: 4.5,       # IQ4_NL: 32-elem block
+    21: 3.4375,    # IQ3_S
+    22: 2.5625,    # IQ2_S
+    23: 4.25,      # IQ4_XS
+    29: 1.75,      # IQ1_M
+    30: 16.0,      # BF16
+    34: 1.6875,    # TQ1_0 (ternary)
+    35: 2.0625,    # TQ2_0 (ternary)
+    39: 4.25,       # MXFP4 (used by real gpt-oss GGUF releases)
+    40: 4.5,       # NVFP4
+    42: 2.25,      # Q2_0
 }
 
 
@@ -167,7 +250,14 @@ def probe(gguf_url: str, machine_bandwidth_gbs: float, calibrate: bool = True) -
         total_bytes += expert_bytes
 
     raw_tps = machine_bandwidth_gbs * 1e9 / total_bytes if total_bytes else 0
-    calibrated_tps = raw_tps * GGUF_CALIBRATION_RATIO if calibrate else raw_tps
+
+    ratio = BANDWIDTH_CALIBRATION_RATIO if calibrate else 1.0
+    overhead = FIXED_OVERHEAD_SEC if calibrate else 0.0
+    if total_bytes:
+        total_time = total_bytes / (machine_bandwidth_gbs * ratio * 1e9) + overhead
+        calibrated_tps = 1.0 / total_time
+    else:
+        calibrated_tps = 0.0
 
     return {
         "library": "llama.cpp",
@@ -177,6 +267,5 @@ def probe(gguf_url: str, machine_bandwidth_gbs: float, calibrate: bool = True) -
         "bytes_per_token_active": round(total_bytes / 1e6, 1),
         "raw_theoretical_tps": round(raw_tps, 1),
         "estimated_real_tps": round(calibrated_tps, 1),
-        "calibration_ratio": GGUF_CALIBRATION_RATIO if calibrate else None,
-        "confidence": "low (no real llama.cpp calibration data yet -- see module docstring)",
+        "confidence": "medium (config-only formula, mean 6.2% error / 10.4% max on 5-point real-measurement set -- one architecture family, see module docstring)",
     }

@@ -424,3 +424,59 @@ mlx-lm's, architecturally.
 3. Any public vLLM-on-Apple-Silicon benchmarks (GitHub, blog posts,
    Reddit/HN) usable as additional real calibration points beyond this
    project's single Gemma-4 measurement.
+
+## Update: llama.cpp recalibrated with real data; vLLM research landed, not yet acted on
+
+A background research agent (general-purpose, web+source access) completed
+the llama.cpp/vLLM research brief above while 5 real `llama-bench`
+measurements were taken in parallel. Two independently useful outcomes:
+
+**llama.cpp: done.** Found and fixed a real bug in `_GGML_TYPE_BITS`
+(Q2_K/Q3_K were priced at ~2x their real bytes -- an ID-mapping error,
+not an imprecision, verified against ggml's own block-struct source),
+and replaced the flat `GGUF_CALIBRATION_RATIO=0.60` guess with a
+bandwidth-ratio + fixed-overhead model fit against 5 real measurements
+(Qwen2.5-0.5B across 4 quant levels + Qwen2.5-7B Q4_K_M, M4 Pro,
+`llama-bench`): mean error 17.1% -> 6.2%, max 28.7% -> 10.4%. See
+`probe_llamacpp.py`'s docstring for the full table and methodology --
+it deliberately mirrors `probe_formula.py`'s MLX approach. Same
+honesty caveat as MLX's early calibration: 5 points, one architecture
+family (Qwen2 dense), two sizes -- a real anchor, not a finished
+formula. The agent's research also *confirmed* (by reading llama.cpp's
+real Metal MoE kernel, `mul_mv_id`) that this project's existing
+MoE-active-bytes approximation is mechanistically correct, not just
+convenient -- no change needed there.
+
+**vLLM: researched, not yet implemented.** The single biggest finding:
+**there are two separate, real, unrelated "vLLM on Apple Silicon"
+packages** -- `vllm-project/vllm-metal` (official org, wraps vLLM's
+actual CUDA-lineage scheduler around mlx-lm's layers with a custom
+Metal attention kernel) and `waybarrios/vllm-mlx` (independent,
+ground-up MLX-native reimplementation of vLLM's *ideas*, not its code).
+This project's existing `VLLM_SINGLE_STREAM_RATIO=0.55` was almost
+certainly measured against `vllm-metal` (the docstring's own wording
+matches that repo's README), but `vllm-mlx`'s own published benchmarks
+suggest it runs much closer to native mlx-lm speed at concurrency=1 --
+meaning **one ratio cannot represent both packages**, and `probe_vllm.py`
+either needs to ask/detect which one a user has, or needs two ratios.
+Not implemented yet because: (a) it needs a real controlled
+measurement, not another guess layered on top of third-party numbers,
+and (b) the third-party numbers found have real internal
+inconsistency -- `vllm-mlx`'s own docs report >50% different
+single-stream tok/s for the identical model/chip in two different
+tables in the same file, which the agent flagged as a genuine
+data-quality finding in its own right (any benchmark of this kind is
+noisy enough that single-run numbers shouldn't be trusted at face
+value). The agent also caught and explicitly discarded its own
+hallucinated claim mid-research (a fabricated "45-90 Metal command
+buffers per token" figure that doesn't exist in the source it claimed
+to cite) -- worth noting as a demonstrated failure mode to watch for
+when delegating this kind of research generally, not specific to this
+finding.
+
+Full agent output (GGUF bit-width table, verified Metal dispatch
+mechanics, the ferrox third-party llama.cpp benchmark comparison, and
+the complete prioritized follow-up list) is in this session's transcript
+but was not saved to a separate doc file -- the actionable parts are
+captured above and in `probe_llamacpp.py`'s docstring; re-run a similar
+research pass if the full source-citation detail is needed again later.

@@ -63,7 +63,8 @@ MoE architectures, across repeated runs. `probe_mlx.py` applies a `0.82`
 calibration factor by default so the reported `estimated_real_tps` lands
 close to the true number, not just the raw internal figure.
 
-**llama.cpp (GGUF) and vLLM support are provisional** -- see the docstrings
+**vLLM support remains provisional; llama.cpp (GGUF) now has a first real
+calibration** -- see the docstrings
 in `probe_llamacpp.py` and `probe_vllm.py` for exactly what's measured vs.
 guessed. Contributions with real measurements are very welcome (see below).
 
@@ -155,7 +156,8 @@ blune_cli/
                       explicitly included; this is the gap that started
                       the whole project
   probe_mlx.py        MLX: zero-download probe, validated (see table above)
-  probe_llamacpp.py   llama.cpp: GGUF-header-only probe (provisional ratio)
+  probe_llamacpp.py   llama.cpp: GGUF-header-only probe (bandwidth+overhead,
+                      calibrated against 5 real measurements)
   probe_vllm.py       vLLM: reuses the MLX probe + a measured correction
                       ratio, since vllm-metal runs mlx-lm's own model
                       classes under the hood
@@ -173,9 +175,13 @@ blune_cli/
   perfectly replicate a trained router's token-to-token expert-reuse
   behavior. The ~81-85% calibration ratio absorbs this empirically; it is
   not a from-first-principles derivation.
-- The llama.cpp probe's `GGUF_CALIBRATION_RATIO` (currently `0.6`) is a
-  placeholder, not a validated constant -- there is exactly zero real
-  llama.cpp measurement behind it yet.
+- The llama.cpp probe now uses a bandwidth-ratio + fixed-overhead model
+  fit against 5 real `llama-bench` measurements (mean 6.2% error, max
+  10.4%) -- a big improvement on the old flat `0.60` guess (17.1% mean
+  error on the same points), but all 5 points are one architecture
+  family (Qwen2, dense) at two sizes on one machine, so treat it as a
+  first real anchor, not a fully validated formula across GGUF's many
+  quant types and MoE models. See `probe_llamacpp.py`'s docstring.
 - The vLLM probe's ratio (`0.55`) comes from **one** real comparison on one
   machine. It also only estimates single-stream throughput; vLLM's actual
   strength is concurrent-request batching (we separately measured ~2.6x

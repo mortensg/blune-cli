@@ -1,6 +1,6 @@
 import struct
 
-from blune_cli.probe_llamacpp import GGUF_MAGIC, _try_parse_header
+from blune_cli.probe_llamacpp import _GGML_TYPE_BITS, GGUF_MAGIC, _try_parse_header
 
 
 def _gguf_string(s: str) -> bytes:
@@ -75,3 +75,24 @@ def test_large_vocab_header_parses_once_fully_fetched():
     result = _try_parse_header(buf)
     assert result["metadata"]["general.architecture"] == "llama"
     assert len(result["tensors"]) == 1
+
+
+def test_ggml_type_bits_match_verified_block_struct_layout():
+    """Regression test for a real ID-mapping bug: the previous table
+    listed nominal bits-per-weight values in name order and assigned
+    them sequentially to enum IDs {0,1,2,3,6,7,8,9,10,11,12,...}, but
+    the real ggml_type enum has a gap at IDs 4-5 (retired Q4_2/Q4_3),
+    which silently shifted every K-quant/IQ value onto the wrong ID --
+    Q2_K and Q3_K were priced at roughly 2x their real bytes. Values
+    below are bytes_per_block*8/elements_per_block, derived from each
+    block struct's real field list in ggml/src/ggml-common.h."""
+    assert _GGML_TYPE_BITS[2] == 4.5  # Q4_0: d(half) + qs[16], 32-elem block
+    assert _GGML_TYPE_BITS[8] == 8.5  # Q8_0: d(half) + qs[32]
+    assert _GGML_TYPE_BITS[10] == 2.625  # Q2_K: was wrongly 5.0 (~90% too high)
+    assert _GGML_TYPE_BITS[11] == 3.4375  # Q3_K: was wrongly 6.5625 (~91% too high)
+    assert _GGML_TYPE_BITS[12] == 4.5  # Q4_K
+    assert _GGML_TYPE_BITS[13] == 5.5  # Q5_K: was wrongly 4.5
+    assert _GGML_TYPE_BITS[14] == 6.5625  # Q6_K: was wrongly 5.5
+    # Previously missing entirely (fell through to a 4.5 default guess):
+    assert _GGML_TYPE_BITS[39] == 4.25  # MXFP4 -- used by real gpt-oss GGUF releases
+    assert _GGML_TYPE_BITS[30] == 16.0  # BF16
