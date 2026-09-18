@@ -1,0 +1,54 @@
+{
+  "_comment": "Real, measured tokens/sec from actual generation runs (not estimates). Machine: Apple M4 Pro, 48GB, macOS 26.5.2. Collected during development of this tool -- see README for methodology.",
+  "measurements": [
+    {
+      "repo_id": "mlx-community/Qwen3-Coder-30B-A3B-Instruct-4bit",
+      "library": "mlx",
+      "machine": "m4_pro_48gb",
+      "real_decode_tps": 89.8,
+      "notes": "MoE, 3B active/30B total, no thinking mode"
+    },
+    {
+      "repo_id": "mlx-community/gemma-4-26b-a4b-it-4bit",
+      "library": "mlx",
+      "machine": "m4_pro_48gb",
+      "real_decode_tps": 76.7,
+      "notes": "MoE, 4B active/26B total, thinking mode enabled"
+    },
+    {
+      "repo_id": "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit",
+      "library": "mlx",
+      "machine": "m4_pro_48gb",
+      "real_decode_tps": 57.2,
+      "notes": "dense, 7B active (all params)"
+    },
+    {
+      "repo_id": "mlx-community/Qwen3.6-35B-A3B-4bit",
+      "library": "mlx",
+      "machine": "m4_pro_48gb",
+      "real_decode_tps": 88.3,
+      "notes": "MoE hybrid (Gated DeltaNet + attention), thinking mode by default"
+    },
+    {
+      "repo_id": "mlx-community/gpt-oss-20b-OptiQ-4bit",
+      "library": "mlx",
+      "machine": "m4_pro_48gb",
+      "real_decode_tps": 83.6,
+      "notes": "MoE, 4 active experts/32 total, mixed 4/8-bit OptiQ quant"
+    },
+    {
+      "repo_id": "mlx-community/gemma-4-26b-a4b-it-4bit",
+      "library": "vllm (metal)",
+      "machine": "m4_pro_48gb",
+      "real_decode_tps": 42.5,
+      "notes": "single-stream via vllm.entrypoints.openai.api_server"
+    },
+    {
+      "repo_id": "mlx-community/gpt-oss-20b-OptiQ-4bit",
+      "library": "vllm (metal)",
+      "machine": "m4_pro_48gb",
+      "real_decode_tps": 53.0,
+      "notes": "single-stream, tool-calling enabled via --tool-call-parser openai"
+    }
+  ]
+}
