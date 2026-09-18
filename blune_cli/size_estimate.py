@@ -491,8 +491,9 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
     mlp_dense_params = 3 * hidden * dense_inter
 
     # DeepSeek-style: first_k_dense_replace layers (and every moe_layer_freq-th
-    # layer thereafter) use the dense MLP instead of MoE experts.
-    first_k_dense = c.get("first_k_dense_replace", 0) or 0
+    # layer thereafter) use the dense MLP instead of MoE experts. LFM2-MoE
+    # uses a differently-named but equivalent field (num_dense_layers).
+    first_k_dense = c.get("first_k_dense_replace") or c.get("num_dense_layers") or 0
     moe_freq = c.get("moe_layer_freq", 1) or 1
     if n_experts:
         moe_layer_mask = [

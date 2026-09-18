@@ -287,3 +287,60 @@ right answer here, but by accident of code structure (the dedicated
 Nemotron-H path is invisible to the confidence check), not because the
 check was designed to distinguish "good hybrid" from "bad hybrid."
 Worth revisiting if/when more hybrid architectures are added.
+
+## Update: LFM2/Granite's layer structure re-verified line by line -- it's not incomplete
+
+The "how completely was the architecture verified" theory above was
+tested directly: `lfm2.py`, `lfm2_moe.py` (including its own
+`Lfm2MoeSparseMoeBlock` and the `SwitchGLU` class it uses), and
+`granitemoehybrid.py` were all read in full, matching every `nn.Linear`
+and `nn.Conv1d` against what `size_estimate.py` already computes.
+Result: **the theory was wrong.** Every layer type (`Attention`,
+`ShortConv`, dense `MLP`, `SwitchGLU`'s 3-matrix expert MLP) matches
+this project's formulas exactly -- confirmed with an actual worked
+calculation, not just a code read.
+
+The real picture, decomposed by removing `FIXED_OVERHEAD_SEC` entirely
+and comparing bytes/bandwidth alone against real speed:
+
+| Model | raw bytes/bandwidth (no overhead) vs. real |
+|---|---|
+| LFM2.5-1.2B (dense) | **-1.8%** -- byte estimate is essentially exact |
+| LFM2-8B-A1B (MoE) | **+142.7%** -- byte estimate implies ~2.4x too little traffic |
+| granite-4.0-h-tiny (MoE) | **+112.3%** -- byte estimate implies ~2.1x too little traffic |
+| Nemotron-3-Nano-30B-A3B (MoE) | +48.1% |
+
+This cleanly separates the two failure modes that were previously
+conflated as one "hybrid" problem:
+
+1. **LFM2.5-1.2B's only problem is `FIXED_OVERHEAD_SEC` itself.** Its
+   real decode time (~5.66ms/token) is *shorter* than the 7.755ms fixed
+   overhead this formula unconditionally adds -- a flat additive
+   constant cannot represent both a model this fast and the original
+   24-48-layer calibration set simultaneously. The byte-counting is
+   already correct; only the overhead term is wrong for it.
+2. **LFM2-8B-A1B and granite have a genuine ~2-2.4x active-bytes gap
+   that isn't explained by any layer-structure omission** -- every
+   weight matrix is accounted for. The leading suspect, not yet
+   confirmed: both are MoE with a small expert count (32 and 64) and a
+   small `num_experts_per_tok` (4 and 6) under single-token (batch=1)
+   decode, and mlx_lm's own `SwitchGLU`/`SparseMoeBlock` source
+   contains an explicit code-path split on token count ("when we have
+   many tokens, sort them... "), implying single-token decode may hit a
+   less bandwidth-efficient kernel path than this formula's "read
+   exactly `experts_per_tok` experts, nothing more" assumption models.
+   The original 5-point calibration set's MoE models (e.g.
+   Qwen3-Coder-30B-A3B, 128ish experts / 8 active) did NOT show this
+   problem, so it isn't simply "any MoE at batch=1" -- something about
+   small total expert counts specifically. This cannot be resolved by
+   reading source code further; it needs actual MLX execution profiling
+   (Metal counters or timed sub-steps) to confirm or refute, which is a
+   different kind of investigation than everything else in this
+   document.
+
+One real, independent bug was found and fixed while re-verifying:
+`lfm2_moe`'s dense-layer count field is `num_dense_layers`, not
+`first_k_dense_replace` -- `size_estimate.py` was silently treating ALL
+of its layers as MoE. Confirmed not to be the cause of the 2-2.4x gap
+above (fixing it makes the estimate `_smaller`_, the wrong direction),
+but a genuine correctness fix on its own.
