@@ -93,9 +93,9 @@ def info(msg: str):
     console.print(f"[dim]{msg}[/]")
 
 
-def progress_step(i: int, total: int, repo_id: str):
-    """Overwrite the same line with '[i/total] probing <repo>' so a long
-    search+rank run (dozens to hundreds of candidates, each needing a
-    network fetch and a real probe) shows visible progress instead of
-    looking hung."""
-    console.print(f"[dim][{i}/{total}][/] probing {repo_id}...", end="\r")
+def progress_step(i: int, total: int, repo_id: str, action: str = "probing"):
+    """Overwrite the same line with '[i/total] <action> <repo>' so a long
+    search+rank or sync run (dozens to thousands of candidates, each
+    needing a network fetch and/or a real probe) shows visible progress
+    instead of looking hung."""
+    console.print(f"[dim][{i}/{total}][/] {action} {repo_id}...", end="\r")

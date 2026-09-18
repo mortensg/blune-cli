@@ -1,0 +1,197 @@
+{
+  "architectures": [
+    "LongcatCausalLM"
+  ],
+  "attention_bias": false,
+  "attention_dropout": 0.0,
+  "attention_method": "LSA",
+  "bos_token_id": 1,
+  "cli_factor": 2,
+  "dsa_mtp_cli": true,
+  "eos_token_id": 2,
+  "expert_ffn_hidden_size": 1024,
+  "ffn_hidden_size": 6144,
+  "generation_config": {
+    "_from_model_config": true,
+    "bos_token_id": 1,
+    "eos_token_id": 2,
+    "pad_token_id": 3,
+    "transformers_version": "4.57.6",
+    "repetition_penalty": 1.06,
+    "temperature": 0.7,
+    "top_p": 0.95,
+    "top_k": 4
+  },
+  "hidden_size": 3072,
+  "index_head_dim": 128,
+  "index_init_tokens": 16,
+  "index_k_norm_type": "rms",
+  "index_local_tokens": 1024,
+  "index_n_heads": 16,
+  "index_topk": 2048,
+  "indexer_rope_interleave": true,
+  "kv_lora_rank": 512,
+  "max_position_embeddings": 983040,
+  "mla_scale_kv_lora": true,
+  "mla_scale_q_lora": true,
+  "model_type": "longcat_flash_sparse",
+  "moe_impl": "mix",
+  "moe_switch_token_num": 1024,
+  "moe_topk": 12,
+  "mtp_disable_over_tokenizer": false,
+  "mtp_num_layers": 3,
+  "mtp_replicate_modules": true,
+  "n_routed_experts": 256,
+  "num_attention_heads": 32,
+  "num_layers": 14,
+  "oe_neighbor_num": 4,
+  "oe_split_num": 4,
+  "oe_vocab_size_ratio": 78,
+  "q_lora_rank": 1536,
+  "qk_nope_head_dim": 128,
+  "qk_rope_head_dim": 64,
+  "quantization": {
+    "group_size": 64,
+    "bits": 8,
+    "mode": "affine",
+    "language_model.model.layers.0.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.1.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.2.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.3.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.4.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.5.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.6.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.7.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.8.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.9.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.10.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.11.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.12.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.13.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    }
+  },
+  "quantization_config": {
+    "group_size": 64,
+    "bits": 8,
+    "mode": "affine",
+    "language_model.model.layers.0.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.1.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.2.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.3.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.4.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.5.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.6.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.7.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.8.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.9.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.10.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.11.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.12.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "language_model.model.layers.13.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    }
+  },
+  "rms_norm_eps": 1e-05,
+  "rope_scaling": {
+    "original_max_position_embeddings": 8192,
+    "rope_type": "deepseek_yarn",
+    "factor": 120,
+    "beta_fast": 32,
+    "beta_slow": 1,
+    "mscale": 1,
+    "mscale_all_dim": 1
+  },
+  "rope_theta": 1000000.0,
+  "routed_scaling_factor": 6.0,
+  "temperature": 0.7,
+  "top_k": 4,
+  "top_p": 0.95,
+  "use_cache": true,
+  "use_mla": 1,
+  "v_head_dim": 128,
+  "vision_config": {},
+  "vocab_size": 131072,
+  "zero_expert_num": 128,
+  "zero_expert_type": "identity"
+}

@@ -1,0 +1,32 @@
+{
+  "architectures": [
+    "TalkieForCausalLM"
+  ],
+  "eos_token_id": [
+    65535,
+    56180
+  ],
+  "head_dim": 128,
+  "hidden_size": 5120,
+  "intermediate_size": 13696,
+  "max_position_embeddings": 2048,
+  "model_file": "talkie_mlx.py",
+  "num_attention_heads": 40,
+  "num_hidden_layers": 40,
+  "pad_token_id": 65535,
+  "quantization": {
+    "group_size": 64,
+    "bits": 4,
+    "mode": "affine"
+  },
+  "quantization_config": {
+    "group_size": 64,
+    "bits": 4,
+    "mode": "affine"
+  },
+  "rms_norm_eps": 1.1920928955078125e-07,
+  "rope_theta": 1000000.0,
+  "tie_word_embeddings": false,
+  "torch_dtype": "bfloat16",
+  "vocab_size": 65536
+}

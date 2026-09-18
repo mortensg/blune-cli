@@ -88,6 +88,37 @@ def cmd_compare_libraries(args, machine):
     ui.show_ranking(results)
 
 
+def cmd_sync_configs(args, machine):
+    """Bulk-populate the curated config cache from every text-generation
+    model an org has published -- config.json only, no probing (probing
+    thousands of repos would take hours; caching their configs takes
+    minutes and is the actual "don't spam Hugging Face" deliverable)."""
+    already = set(config_cache.list_curated())
+    ui.info(f"listing {args.author}'s models on the Hub...")
+    repos = search.list_org_models(author=args.author, max_results=args.limit)
+    todo = [r for r in repos if r not in already]
+    ui.info(
+        f"found {len(repos)} model(s), {len(already & set(repos))} already cached, "
+        f"fetching {len(todo)}...\n"
+    )
+
+    fetched, failed = 0, []
+    for i, repo in enumerate(todo, 1):
+        ui.progress_step(i, len(todo), repo, action="fetching")
+        try:
+            config_cache.get_config(repo, offline=False, save_curated=True)
+            fetched += 1
+        except Exception as e:
+            failed.append((repo, str(e)))
+    ui.console.print()
+    ui.info(f"done: {fetched} new config(s) cached, {len(failed)} failed.")
+    if failed:
+        for repo, err in failed[:20]:
+            ui.console.print(f"  [red]FAILED[/] {repo}: {err}")
+        if len(failed) > 20:
+            ui.console.print(f"  ...and {len(failed) - 20} more")
+
+
 def cmd_gguf(args, machine):
     if not machine.bandwidth_gbs:
         ui.error(
@@ -167,6 +198,12 @@ def main():
     p_gguf = sub.add_parser("gguf", help="probe a GGUF file by URL (llama.cpp)")
     p_gguf.add_argument("url")
 
+    p_sync = sub.add_parser(
+        "sync-configs", help="bulk-populate the curated config cache from an org's models"
+    )
+    p_sync.add_argument("--author", default="mlx-community")
+    p_sync.add_argument("--limit", type=int, default=None, help="cap on how many to fetch")
+
     args = parser.parse_args()
     machine = detect_machine()
 
@@ -181,6 +218,8 @@ def main():
         cmd_compare_libraries(args, machine)
     elif args.command == "gguf":
         cmd_gguf(args, machine)
+    elif args.command == "sync-configs":
+        cmd_sync_configs(args, machine)
     else:
         interactive_wizard(machine)
 

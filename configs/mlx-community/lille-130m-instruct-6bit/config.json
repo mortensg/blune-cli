@@ -1,0 +1,27 @@
+{
+  "architectures": [
+    "LilleForCausalLM"
+  ],
+  "block_size": 512,
+  "dropout": 0.0,
+  "layer_norm_eps": 1e-05,
+  "model_type": "lille-130m",
+  "n_embd": 640,
+  "n_head": 10,
+  "n_kv_heads": 2,
+  "n_layer": 24,
+  "quantization": {
+    "group_size": 64,
+    "bits": 6,
+    "mode": "affine"
+  },
+  "quantization_config": {
+    "group_size": 64,
+    "bits": 6,
+    "mode": "affine"
+  },
+  "rope_theta": 10000.0,
+  "torch_dtype": "float32",
+  "transformers_version": "4.53.3",
+  "vocab_size": 32768
+}

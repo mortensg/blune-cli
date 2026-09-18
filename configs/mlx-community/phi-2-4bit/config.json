@@ -1,0 +1,7 @@
+{
+  "quantization": {
+    "group_size": 64,
+    "bits": 4
+  },
+  "model_type": "phi2"
+}

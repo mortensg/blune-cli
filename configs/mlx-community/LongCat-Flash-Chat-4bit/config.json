@@ -1,0 +1,272 @@
+{
+  "architectures": [
+    "LongcatFlashForCausalLM"
+  ],
+  "attention_bias": false,
+  "attention_dropout": 0.0,
+  "attention_method": "MLA",
+  "auto_map": {
+    "AutoConfig": "configuration_longcat_flash.LongcatFlashConfig",
+    "AutoModel": "modeling_longcat_flash.LongcatFlashModel",
+    "AutoModelForCausalLM": "modeling_longcat_flash.LongcatFlashForCausalLM"
+  },
+  "bos_token_id": 1,
+  "eos_token_id": 2,
+  "expert_ffn_hidden_size": 2048,
+  "ffn_hidden_size": 12288,
+  "hidden_size": 6144,
+  "kv_lora_rank": 512,
+  "max_position_embeddings": 131072,
+  "mla_scale_kv_lora": true,
+  "mla_scale_q_lora": true,
+  "model_type": "longcat_flash",
+  "moe_topk": 12,
+  "n_routed_experts": 512,
+  "num_attention_heads": 64,
+  "num_layers": 28,
+  "q_lora_rank": 1536,
+  "qk_nope_head_dim": 128,
+  "qk_rope_head_dim": 64,
+  "quantization": {
+    "group_size": 64,
+    "bits": 4,
+    "mode": "affine",
+    "model.layers.0.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.1.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.2.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.3.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.4.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.5.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.6.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.7.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.8.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.9.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.10.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.11.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.12.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.13.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.14.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.15.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.16.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.17.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.18.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.19.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.20.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.21.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.22.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.23.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.24.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.25.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.26.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.27.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    }
+  },
+  "quantization_config": {
+    "group_size": 64,
+    "bits": 4,
+    "mode": "affine",
+    "model.layers.0.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.1.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.2.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.3.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.4.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.5.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.6.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.7.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.8.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.9.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.10.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.11.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.12.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.13.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.14.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.15.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.16.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.17.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.18.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.19.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.20.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.21.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.22.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.23.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.24.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.25.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.26.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    },
+    "model.layers.27.mlp.router.classifier": {
+      "group_size": 64,
+      "bits": 8
+    }
+  },
+  "rms_norm_eps": 1e-05,
+  "rope_theta": 10000000.0,
+  "routed_scaling_factor": 6.0,
+  "use_cache": true,
+  "v_head_dim": 128,
+  "vocab_size": 131072,
+  "zero_expert_num": 256,
+  "zero_expert_type": "identity"
+}

@@ -1,0 +1,19 @@
+{
+  "model_type": "z1t",
+  "vocab_size": 50257,
+  "hidden_size": 12288,
+  "num_hidden_layers": 4,
+  "max_position_embeddings": 256,
+  "aft_kind": "conv",
+  "aft_heads": 4,
+  "aft_ksize": 4,
+  "dyt_alpha": 0.5,
+  "linear_fan_in": 4,
+  "attn_fan_in": null,
+  "mlp_fan_in": null,
+  "tanh_linear": true,
+  "tanh_mlp": true,
+  "tie_word_embeddings": false,
+  "bos_token_id": 50256,
+  "eos_token_id": 50256
+}

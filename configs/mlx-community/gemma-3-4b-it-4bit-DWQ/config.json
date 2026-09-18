@@ -1,0 +1,39 @@
+{
+  "architectures": [
+    "Gemma3ForConditionalGeneration"
+  ],
+  "boi_token_index": 255999,
+  "eoi_token_index": 256000,
+  "eos_token_id": [
+    1,
+    106
+  ],
+  "image_token_index": 262144,
+  "initializer_range": 0.02,
+  "mm_tokens_per_image": 256,
+  "model_type": "gemma3",
+  "quantization": {
+    "group_size": 64,
+    "bits": 4
+  },
+  "quantization_config": {
+    "group_size": 64,
+    "bits": 4
+  },
+  "text_config": {
+    "hidden_size": 2560,
+    "intermediate_size": 10240,
+    "model_type": "gemma3_text",
+    "num_hidden_layers": 34,
+    "rope_scaling": {
+      "factor": 8.0,
+      "rope_type": "linear"
+    },
+    "sliding_window": 1024,
+    "vocab_size": 262208,
+    "num_attention_heads": 8,
+    "num_key_value_heads": 4
+  },
+  "torch_dtype": "bfloat16",
+  "transformers_version": "4.50.0.dev0"
+}
