@@ -46,16 +46,27 @@ launch, graph-eval bookkeeping) rather than a fitting artifact.
 Calibration data (M4 Pro, 48GB; see measurements.json for the raw numbers,
 context_length=115 matching this project's own probe's prompt+decode
 range):
-    Qwen3-Coder-30B-A3B-Instruct-4bit:  real 89.8 tok/s, formula 84.0 (-6.4%)
+    Qwen3-Coder-30B-A3B-Instruct-4bit:  real 89.8 tok/s, formula 84.0 (-6.5%)
     gemma-4-26b-a4b-it-4bit:            real 76.7 tok/s, formula 82.1 (+7.0%)
-    Qwen2.5-Coder-7B-Instruct-4bit:     real 57.2 tok/s, formula 57.7 (+0.8%)
-    Qwen3.6-35B-A3B-4bit:               real 88.3 tok/s, formula 92.1 (+4.3%)
+    Qwen2.5-Coder-7B-Instruct-4bit:     real 57.2 tok/s, formula 57.7 (+0.9%)
+    Qwen3.6-35B-A3B-4bit:               real 88.3 tok/s, formula 85.9 (-2.7%)
     gpt-oss-20b-OptiQ-4bit:             real 83.6 tok/s, formula 79.0 (-5.5%)
-mean absolute error 4.8%, max 7.0% -- fit on only 5 points with 2 free
+mean absolute error 4.5%, max 7.0% -- fit on only 5 points with 2 free
 parameters, so treat this as a genuinely useful fast estimate, not a
 replacement for probe_mlx.py's real-execution probe when accuracy matters
 more than speed, and re-fit both constants if/when more real measurements
 across more architectures become available.
+
+Known remaining gap: on a hybrid Mamba/attention + MoE architecture
+outside this calibration set (Qwen3.6-35B-A3B family with GatedDeltaNet
+linear-attention layers), this formula still over-predicts by ~18-26%
+versus probe_mlx.py's own zero-download probe (itself not validated
+against a real download for that architecture). Root-caused to a
+per-architecture attention quirk (mlx_lm's Qwen3NextAttention doubles
+q_proj's output size) that doesn't generalize safely from config.json
+alone -- see docs/formula-accuracy-gap.md for the full investigation,
+including why a plausible-looking config-field heuristic for it was
+deliberately rejected after checking it would have broken Gemma4.
 """
 from typing import Optional
 

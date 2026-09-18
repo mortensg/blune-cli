@@ -1,4 +1,7 @@
 from blune_cli.size_estimate import (
+    _analyze,
+    _gated_delta_net_params,
+    _mamba_ssm_params,
     estimate_active_bytes_per_token,
     estimate_bytes,
     estimate_kv_bytes_per_token,
@@ -186,6 +189,104 @@ def test_kv_bytes_grow_with_context_when_no_sliding_window():
     short = estimate_kv_bytes_per_token(config, context_length=128)
     long = estimate_kv_bytes_per_token(config, context_length=128_000)
     assert long == short * 1000
+
+
+def test_gated_delta_net_matches_real_mlx_lm_layer():
+    """Exact param count check against mlx_lm.models.gated_delta's real
+    GatedDeltaNet.__init__ (in_proj_qkv, in_proj_z, in_proj_b, in_proj_a,
+    depthwise conv1d, out_proj), using the real field values from
+    Youssofal/Qwen3.6-35B-A3B-*'s config -- not just "some number came
+    out", an exact hand-computed expectation."""
+    c = {
+        "linear_num_value_heads": 32,
+        "linear_num_key_heads": 16,
+        "linear_key_head_dim": 128,
+        "linear_value_head_dim": 128,
+        "linear_conv_kernel_dim": 4,
+    }
+    hidden = 2048
+    key_dim = 128 * 16
+    value_dim = 128 * 32
+    conv_dim = key_dim * 2 + value_dim
+    expected = (
+        hidden * (key_dim * 2 + value_dim)  # in_proj_qkv
+        + hidden * value_dim  # in_proj_z
+        + hidden * 32  # in_proj_b
+        + hidden * 32  # in_proj_a
+        + conv_dim * 4  # conv1d
+        + value_dim * hidden  # out_proj
+    )
+    assert _gated_delta_net_params(c, hidden) == expected
+
+
+def test_gated_delta_net_returns_none_without_required_fields():
+    assert _gated_delta_net_params({"hidden_size": 2048}, 2048) is None
+
+
+def test_mamba_ssm_params_matches_real_mlx_lm_layer():
+    """Exact param count check against mlx_lm.models.mamba's real
+    MambaBlock.__init__ (in_proj, depthwise conv1d, x_proj, dt_proj,
+    out_proj)."""
+    c = {"d_state": 16, "d_conv": 4, "intermediate_size": 4096, "dt_rank": 128}
+    hidden = 2048
+    expected = (
+        hidden * 2 * 4096  # in_proj
+        + 4096 * 4  # conv1d
+        + 4096 * (128 + 2 * 16)  # x_proj
+        + 128 * 4096  # dt_proj
+        + 4096 * hidden  # out_proj
+    )
+    assert _mamba_ssm_params(c, hidden) == expected
+
+
+def test_hybrid_layer_uses_real_ssm_formula_not_attention_fallback():
+    """Regression test: before real SSM param formulas were added, hybrid
+    Mamba/linear-attention layers used the generic attention+MLP formula,
+    which undercounted them substantially (a real hold-out model was
+    over-predicted by 32-39% because of this -- see
+    docs/formula-accuracy-gap.md). The SSM-layer weight count should now
+    differ from (and, for this real field combination, exceed) the
+    generic attention formula's."""
+    config = {
+        "hidden_size": 2048,
+        "num_hidden_layers": 4,
+        "num_attention_heads": 16,
+        "num_key_value_heads": 2,
+        "head_dim": 256,
+        "intermediate_size": 8192,
+        "vocab_size": 32000,
+        "layer_types": ["linear_attention"] * 4,
+        "linear_num_value_heads": 32,
+        "linear_num_key_heads": 16,
+        "linear_key_head_dim": 128,
+        "linear_value_head_dim": 128,
+        "linear_conv_kernel_dim": 4,
+    }
+    a = _analyze(config)
+    assert a.ssm_weight_params_per_layer != a.attn_weight_params_per_layer
+    assert a.ssm_weight_params_per_layer == _gated_delta_net_params(config, 2048)
+
+
+def test_shared_expert_intermediate_size_counted_even_without_explicit_count():
+    """Regression test: Qwen3-Next-family MoE always has one always-on
+    shared expert sized by shared_expert_intermediate_size, signaled by
+    that field's presence rather than an explicit n_shared_experts count
+    -- missing this silently zeroed out a real expert's worth of active
+    bytes every decode step (and affected one of this project's own
+    5-point real calibration measurements)."""
+    base = {
+        "hidden_size": 2048,
+        "num_hidden_layers": 4,
+        "num_attention_heads": 16,
+        "num_key_value_heads": 8,
+        "head_dim": 128,
+        "num_experts": 64,
+        "num_experts_per_tok": 4,
+        "moe_intermediate_size": 512,
+        "vocab_size": 32000,
+    }
+    with_shared = {**base, "shared_expert_intermediate_size": 512}
+    assert estimate_active_bytes_per_token(with_shared) > estimate_active_bytes_per_token(base)
 
 
 def test_fits_in_ram_true_for_small_model():

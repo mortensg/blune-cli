@@ -36,46 +36,67 @@ landed at 672.1B, which validates the **parameter-counting** formula but
 says nothing about whether the **speed** formula is right for an
 MLA/interleaved model, since DeepSeek-V3 was never run for real.
 
-## The one concrete data point we do have — and it's not good
+## Update: root-caused and partially fixed against mlx-lm's real source
 
-Comparing the formula against the zero-download real probe (level 2, NOT
-level-1 ground truth) for a hybrid Mamba/attention architecture
-(`Youssofal/Qwen3.6-35B-A3B-*`, same family as the model that originally
-exposed this gap):
+Rather than guess, we read mlx-lm's actual layer implementations
+(`site-packages/mlx_lm/models/{gated_delta,mamba,qwen3_next}.py`) to get
+exact parameter formulas instead of approximations. Two real bugs found
+and fixed this way:
 
-| Model | Zero-download real probe | Formula | Delta |
+1. **SSM/linear-attention layers used the generic attention formula.**
+   `size_estimate.py` now has exact param formulas matching
+   `GatedDeltaNet.__init__` (Qwen3.5/3.6/3-Next's linear-attention layer:
+   `in_proj_qkv`, `in_proj_z`, `in_proj_b`, `in_proj_a`, depthwise
+   `conv1d`, `out_proj`) and `MambaBlock.__init__` (classic Mamba/Jamba-
+   style: `in_proj`, `conv1d`, `x_proj`, `dt_proj`, `out_proj`), selected
+   by which config fields are present.
+2. **Qwen3-Next's always-on shared expert was invisible to the formula.**
+   `Qwen3NextSparseMoeBlock` always instantiates one shared expert sized
+   by `shared_expert_intermediate_size` — a separate field from the
+   generic `n_shared_experts` count this project already checked, so it
+   was silently contributing zero bytes. This fix also **improved the
+   original 5-point calibration set** (mean error 4.8% → 4.5%), since
+   one of those 5 models (`Qwen3.6-35B-A3B-4bit`) has the same
+   architecture and was quietly undercounted too.
+
+Effect on the same hold-out comparison (formula vs. our own zero-download
+real probe, level 2 — not level-1 ground truth):
+
+| Model | Zero-download real probe | Formula (before fix) | Formula (after fix) |
 |---|---|---|---|
-| Qwen3.6-35B-A3B-Abliterated-Heretic-MLX-4bit | 66.3 tok/s | 92.1 tok/s | **+38.9%** |
-| Qwen3.6-35B-A3B-MTPLX-Optimized-Speed | 69.9 tok/s | 92.1 tok/s | **+31.8%** |
+| Qwen3.6-35B-A3B-Abliterated-Heretic-MLX-4bit | 68.1 tok/s | 92.1 (+38.9%) | 85.9 (**+26.1%**) |
+| Qwen3.6-35B-A3B-MTPLX-Optimized-Speed | 73.0 tok/s | 92.1 (+31.8%) | 85.9 (**+17.7%**) |
 
-The formula over-predicts speed by ~32-39% on this architecture family.
-Root cause suspected: the formula's per-layer *weight-parameter* count
-still uses one generic attention+MLP formula for every layer, including
-Mamba/SSM/linear-attention ones, which have a materially different
-weight structure (in_proj, conv1d, x_proj, dt_proj, out_proj) that isn't
-being parsed at all — the formula gets the *KV-cache* side of hybrid
-layers right (correctly excludes them from the growing KV term) but not
-the *weight-bytes* side.
-
-Note this comparison is formula-vs-level-2 (our own zero-download probe),
-not formula-vs-level-1 (genuine measured ground truth) — so even the
-32-39% figure has an unquantified error bar of its own, since the
-zero-download probe itself was never validated against a real download
-for a hybrid architecture.
+Better, not solved. A third bug was found but deliberately **not** fixed:
+`Qwen3NextAttention.q_proj` projects to `num_attention_heads * head_dim *
+2` (double the standard size) in mlx-lm's real implementation — some
+gated-attention variant specific to this architecture family. We checked
+whether the `attn_output_gate` config field could generically signal
+this (it seemed plausible), but Gemma4 also sets `attn_output_gate: true`
+and its real `Attention.q_proj` is the *standard*, non-doubled size — so
+using that field as a general rule would have silently broken Gemma4's
+(already-validated, in-calibration-set) attention param count to fix
+Qwen3-Next's. This is the kind of per-architecture-family quirk that
+doesn't generalize from config.json field presence alone and would need
+either a `model_type`-keyed lookup table or (better) real measured data
+for more architectures to know how much it actually matters.
 
 ## What this means for further research
 
-1. **Highest-value next step**: get real level-1 measurements (full
-   model download + real generation speed) for at least one model with
-   each of: MLA (a DeepSeek variant), a hybrid Mamba/attention
-   architecture, and a model with shared experts. Right now the formula
-   is unvalidated in exactly the areas it was just extended to cover.
-2. **Second priority**: a generic (config-field-based) weight-parameter
-   formula for Mamba/SSM layers specifically, since that's the
-   suspected root cause of the 32-39% hybrid-architecture gap. Field
-   names for this vary across converters (`mamba_d_state`/`d_state`,
-   `linear_key_head_dim`, `mamba_expand`, etc.) and would need
-   cataloging the way MoE's expert-count field names were.
+1. **Highest-value next step, unchanged**: get real level-1 measurements
+   (full model download + real generation speed) for at least one model
+   with each of MLA, a hybrid Mamba/attention architecture, and a model
+   with shared experts. The formula is still unvalidated against genuine
+   ground truth in every area it was extended to cover — only checked
+   against our own zero-download probe, which has its own unquantified
+   error for these architectures.
+2. **Revised second priority**: rather than one more generic formula,
+   the pattern above (real bugs found by reading mlx-lm's actual layer
+   source, not by guessing from config field names) generalizes well —
+   repeat it for other architecture families as they come up, and
+   consider a small `model_type -> known quirks` lookup table for the
+   handful of per-architecture-family exceptions (like Qwen3-Next's
+   doubled q_proj) that genuinely can't be inferred from config alone.
 3. Everything else in the original research brief (engine-specific
    efficiency profiles for llama.cpp/vLLM, concurrent-batch throughput,
    speculative decoding, multi-GPU/interconnect) remains completely

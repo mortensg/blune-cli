@@ -17,15 +17,18 @@ derivations this was built from. `probe_mlx.py`'s real model construction
 remains the ground truth when architectural detail matters more than
 speed; this module is the fast, config-only approximation.
 
-Known simplification: weight-parameter counts (used for RAM sizing) use
-one generic per-layer attention+MLP formula for every layer, including
-hybrid Mamba/SSM/linear-attention layers, which have a materially
-different weight structure (in_proj/conv1d/x_proj/dt_proj/out_proj) that
-config.json field names aren't consistent enough across converters to
-parse generically yet. Where hybrid layers DO get modeled precisely is
-the part that matters most for decode speed: they're excluded from the
-growing per-token KV-cache read term, since that's the actual point of
-those layers (see estimate_kv_bytes_per_token).
+SSM/hybrid layer weight params: two real layer implementations are
+supported, matched against mlx-lm's actual source
+(site-packages/mlx_lm/models/{gated_delta,mamba}.py) rather than
+guessed -- Qwen3.5/3.6/3-Next's GatedDeltaNet (linear_num_value_heads
+etc. fields) and classic Mamba/Mamba2/Jamba-style SSM blocks
+(mamba_d_state/d_state etc. fields). An architecture using neither
+naming convention falls back to the generic attention+MLP formula for
+that layer's weight count, which is known to be wrong for genuine SSM
+layers -- see docs/formula-accuracy-gap.md for how wrong (a hybrid
+model using GatedDeltaNet, before this was added, was over-predicted
+by 32-39% because its SSM layers were undercounted as much smaller
+attention layers).
 """
 from dataclasses import dataclass
 from typing import Optional
@@ -81,14 +84,77 @@ def _infer_bits(config: dict, path_hint: str = "") -> int:
     return 4  # last resort: most curated repos are 4-bit MLX conversions
 
 
+def _gated_delta_net_params(c: dict, hidden: int) -> Optional[float]:
+    """Exact param count for Qwen3.5/3.6/3-Next's GatedDeltaNet linear-
+    attention layer, matching mlx_lm.models.gated_delta.GatedDeltaNet's
+    actual __init__ (in_proj_qkv, in_proj_z, in_proj_b, in_proj_a,
+    depthwise conv1d, out_proj) -- not a generic approximation."""
+    num_v_heads = c.get("linear_num_value_heads")
+    num_k_heads = c.get("linear_num_key_heads")
+    head_k_dim = c.get("linear_key_head_dim")
+    head_v_dim = c.get("linear_value_head_dim")
+    conv_kernel = c.get("linear_conv_kernel_dim")
+    if not all([num_v_heads, num_k_heads, head_k_dim, head_v_dim, conv_kernel]):
+        return None
+
+    key_dim = head_k_dim * num_k_heads
+    value_dim = head_v_dim * num_v_heads
+    conv_dim = key_dim * 2 + value_dim
+
+    in_proj_qkv = hidden * (key_dim * 2 + value_dim)
+    in_proj_z = hidden * value_dim
+    in_proj_b = hidden * num_v_heads
+    in_proj_a = hidden * num_v_heads
+    conv1d = conv_dim * conv_kernel  # depthwise, no bias
+    out_proj = value_dim * hidden
+
+    return in_proj_qkv + in_proj_z + in_proj_b + in_proj_a + conv1d + out_proj
+
+
+def _mamba_ssm_params(c: dict, hidden: int) -> Optional[float]:
+    """Exact param count for a classic Mamba/Mamba2 SSM block (Jamba-style
+    hybrid architectures), matching mlx_lm.models.mamba.MambaBlock's
+    actual __init__ (in_proj, depthwise conv1d, x_proj, dt_proj,
+    out_proj)."""
+    d_state = c.get("mamba_d_state") or c.get("d_state") or c.get("ssm_state_size") or c.get("state_size")
+    d_conv = c.get("mamba_d_conv") or c.get("d_conv") or c.get("conv_kernel") or c.get("conv_kernel_size")
+    d_inner = c.get("mamba_d_inner") or c.get("intermediate_size")
+    if not d_inner:
+        expand = c.get("mamba_expand") or c.get("expand") or c.get("expand_factor")
+        d_inner = expand * hidden if expand else None
+    dt_rank = c.get("dt_rank") or c.get("mamba_dt_rank") or c.get("time_step_rank")
+    if not dt_rank and hidden:
+        dt_rank = -(-hidden // 16)  # ceil(hidden/16), Mamba's own default when unspecified
+    if not all([d_state, d_conv, d_inner]):
+        return None
+
+    in_proj = hidden * 2 * d_inner
+    conv1d = d_inner * d_conv  # depthwise
+    x_proj = d_inner * (dt_rank + 2 * d_state)
+    dt_proj = dt_rank * d_inner
+    out_proj = d_inner * hidden
+
+    return in_proj + conv1d + x_proj + dt_proj + out_proj
+
+
+def _ssm_layer_params(c: dict, hidden: int, fallback: float) -> float:
+    """Best-available SSM/hybrid-layer weight param count: a real layer
+    implementation's exact formula if the config has the fields for one,
+    else `fallback` (the generic attention+MLP estimate, known
+    inaccurate for genuine SSM layers -- see module docstring)."""
+    return _gated_delta_net_params(c, hidden) or _mamba_ssm_params(c, hidden) or fallback
+
+
 @dataclass
 class ArchProfile:
     hidden: int
     layers: int
     vocab: int
     attn_weight_params_per_layer: float
+    ssm_weight_params_per_layer: float
     is_mla: bool
     kv_elems_per_token_per_attn_layer: float  # MLA latent size, or 2*kv_heads*head_dim
+    layer_kinds: list  # per-layer: "full", "sliding", or "ssm"
     n_full_attn_layers: int  # KV cache grows unbounded with context
     n_sliding_attn_layers: int  # KV cache capped at sliding_window
     n_ssm_layers: int  # no growing KV cache at all (Mamba/SSM/linear-attention)
@@ -143,20 +209,25 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
     sliding_window = c.get("sliding_window")
     layer_types = c.get("layer_types")
     if isinstance(layer_types, list) and len(layer_types) == layers:
-        n_ssm_layers = sum(1 for t in layer_types if t in _SSM_LAYER_TYPES)
-        n_sliding_attn_layers = sum(1 for t in layer_types if t in _SLIDING_LAYER_TYPES)
-        n_full_attn_layers = layers - n_ssm_layers - n_sliding_attn_layers
-    else:
-        n_ssm_layers = 0
+        layer_kinds = [
+            "ssm" if t in _SSM_LAYER_TYPES else "sliding" if t in _SLIDING_LAYER_TYPES else "full"
+            for t in layer_types
+        ]
+    elif sliding_window:
         # No per-layer info to say which layers are sliding vs. full -- if
         # sliding_window is declared at all, the common case (Mistral-style)
         # is that every layer uses it uniformly.
-        if sliding_window:
-            n_sliding_attn_layers = layers
-            n_full_attn_layers = 0
-        else:
-            n_sliding_attn_layers = 0
-            n_full_attn_layers = layers
+        layer_kinds = ["sliding"] * layers
+    else:
+        layer_kinds = ["full"] * layers
+
+    n_ssm_layers = layer_kinds.count("ssm")
+    n_sliding_attn_layers = layer_kinds.count("sliding")
+    n_full_attn_layers = layer_kinds.count("full")
+
+    ssm_weight_params_per_layer = (
+        _ssm_layer_params(c, hidden, fallback=attn_weight_params_per_layer) if n_ssm_layers else 0.0
+    )
 
     # --- MoE: experts, shared experts, router, and dense/MoE interleaving ---
     n_experts = (
@@ -175,6 +246,14 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
         or (1 if n_experts else 1)
     )
     n_shared_experts = c.get("n_shared_experts") or c.get("n_shared_expert") or 0
+    # Qwen3-Next-family MoE (mlx_lm's Qwen3NextSparseMoeBlock) always has
+    # exactly one always-on shared expert with its OWN intermediate size,
+    # signaled by shared_expert_intermediate_size rather than a count
+    # field -- missing this entirely undercounted every layer's active
+    # bytes by a full extra expert's worth of compute.
+    shared_expert_inter = c.get("shared_expert_intermediate_size")
+    if not n_shared_experts and shared_expert_inter:
+        n_shared_experts = 1
 
     # 3 projections per MLP block (gate/up/down), matching the SwiGLU/
     # gated-MLP structure nearly every current architecture uses (Llama,
@@ -182,10 +261,11 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
     # every MLP-heavy (i.e. almost every) model's params by ~33%.
     if n_experts:
         moe_inter = c.get("moe_intermediate_size") or c.get("intermediate_size") or 4 * hidden
-        expert_params = 3 * hidden * moe_inter
-        mlp_moe_active_params = expert_params * (experts_per_tok + n_shared_experts)
-        mlp_moe_total_params = expert_params * (n_experts + n_shared_experts)
-        router_params_per_moe_layer = hidden * n_experts
+        routed_expert_params = 3 * hidden * moe_inter
+        shared_expert_params = 3 * hidden * (shared_expert_inter or moe_inter)
+        mlp_moe_active_params = routed_expert_params * experts_per_tok + shared_expert_params * n_shared_experts
+        mlp_moe_total_params = routed_expert_params * n_experts + shared_expert_params * n_shared_experts
+        router_params_per_moe_layer = hidden * n_experts + (hidden if n_shared_experts else 0)
     else:
         mlp_moe_active_params = 0.0
         mlp_moe_total_params = 0.0
@@ -210,8 +290,10 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
         layers=layers,
         vocab=vocab,
         attn_weight_params_per_layer=attn_weight_params_per_layer,
+        ssm_weight_params_per_layer=ssm_weight_params_per_layer,
         is_mla=is_mla,
         kv_elems_per_token_per_attn_layer=kv_elems_per_token_per_attn_layer,
+        layer_kinds=layer_kinds,
         n_full_attn_layers=n_full_attn_layers,
         n_sliding_attn_layers=n_sliding_attn_layers,
         n_ssm_layers=n_ssm_layers,
@@ -238,9 +320,11 @@ def estimate_total_params(config: dict) -> Optional[int]:
         return None
 
     total = 0.0
-    for is_moe_layer in a.moe_layer_mask or [False] * a.layers:
-        mlp = (a.mlp_moe_total_params + a.router_params_per_moe_layer) if is_moe_layer else a.mlp_dense_params
-        total += a.attn_weight_params_per_layer + mlp
+    moe_mask = a.moe_layer_mask or [False] * a.layers
+    for i in range(a.layers):
+        mixer = a.ssm_weight_params_per_layer if a.layer_kinds[i] == "ssm" else a.attn_weight_params_per_layer
+        mlp = (a.mlp_moe_total_params + a.router_params_per_moe_layer) if moe_mask[i] else a.mlp_dense_params
+        total += mixer + mlp
 
     total += 2 * a.vocab * a.hidden  # embedding + lm_head, worst case untied
     return int(total)
@@ -293,9 +377,11 @@ def estimate_active_bytes_per_token(config: dict, context_length: int = 128) -> 
 
     # 1. active weight bytes
     active_params = 0.0
-    for is_moe_layer in a.moe_layer_mask or [False] * a.layers:
-        mlp = (a.mlp_moe_active_params + a.router_params_per_moe_layer) if is_moe_layer else a.mlp_dense_params
-        active_params += a.attn_weight_params_per_layer + mlp
+    moe_mask = a.moe_layer_mask or [False] * a.layers
+    for i in range(a.layers):
+        mixer = a.ssm_weight_params_per_layer if a.layer_kinds[i] == "ssm" else a.attn_weight_params_per_layer
+        mlp = (a.mlp_moe_active_params + a.router_params_per_moe_layer) if moe_mask[i] else a.mlp_dense_params
+        active_params += mixer + mlp
     active_params += a.vocab * a.hidden  # lm_head projection, read every decode step
     active_weight_bytes = active_params * bits / 8
 
