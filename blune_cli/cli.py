@@ -8,11 +8,22 @@ as you choose). Every choice is also available as a direct flag for
 scripting: `blune --search --library mlx --limit 20 --rank`.
 """
 import argparse
+import json
+import subprocess
 import sys
 
 from rich.prompt import IntPrompt, Prompt
 
-from . import config_cache, measurements, probe_llamacpp, probe_mlx, probe_vllm, search, ui
+from . import (
+    config_cache,
+    measurements,
+    probe_llamacpp,
+    probe_mlx,
+    probe_vllm,
+    search,
+    size_estimate,
+    ui,
+)
 from .hardware import detect_machine
 
 
@@ -119,6 +130,79 @@ def cmd_sync_configs(args, machine):
             ui.console.print(f"  ...and {len(failed) - 20} more")
 
 
+def _run_probe_isolated(repo_id: str, library: str, timeout: int) -> dict:
+    """Run one probe in a fresh subprocess (see _probe_worker.py) so a
+    crash on one model can't take the whole sweep down, and enforce a
+    wall-clock timeout so one stuck model can't stall it forever."""
+    proc = subprocess.run(
+        [sys.executable, "-m", "blune_cli._probe_worker", repo_id, "--library", library],
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+    if proc.returncode != 0:
+        try:
+            err = json.loads(proc.stderr.strip().splitlines()[-1])["error"]
+        except Exception:
+            err = (proc.stderr.strip().splitlines() or ["unknown error"])[-1]
+        raise RuntimeError(err)
+    return json.loads(proc.stdout.strip().splitlines()[-1])
+
+
+def cmd_sweep(args, machine):
+    """Probe every model already in the curated config cache, one at a
+    time, printing a permanent result line for each as it finishes --
+    unlike cmd_search_and_rank (which only shows a final table), this is
+    built for a run over hundreds/thousands of models where you want to
+    see progress accumulate, not wonder if it's still alive."""
+    repos = sorted(config_cache.list_curated())
+    if args.limit:
+        repos = repos[: args.limit]
+
+    ui.info(
+        f"sweeping {len(repos)} cached model(s) (library={args.library}, "
+        f"timeout={args.timeout}s/model)...\n"
+    )
+
+    machine_key = _machine_key(machine)
+    ok, failed, skipped = 0, 0, 0
+
+    for i, repo in enumerate(repos, 1):
+        real = measurements.find_real_measurement(repo, args.library, machine=machine_key)
+        if real:
+            ui.stream_result(i, len(repos), repo, f"{real['real_decode_tps']} tok/s (measured)", "green")
+            ok += 1
+            continue
+
+        try:
+            config = config_cache.get_config(repo, offline=True)
+        except Exception as e:
+            ui.stream_result(i, len(repos), repo, f"FAILED: {e}", "red")
+            failed += 1
+            continue
+
+        if machine.total_ram_gb and not size_estimate.fits_in_ram(config, machine.total_ram_gb):
+            ui.stream_result(i, len(repos), repo, "SKIPPED: too large for this machine's RAM", "yellow")
+            skipped += 1
+            continue
+
+        ui.stream_in_progress(i, len(repos), repo)
+        try:
+            r = _run_probe_isolated(repo, args.library, args.timeout)
+            tps = r.get("estimated_real_tps")
+            ui.stream_result(i, len(repos), repo, f"{tps} tok/s (estimated)", "cyan")
+            ok += 1
+        except subprocess.TimeoutExpired:
+            ui.stream_result(i, len(repos), repo, f"FAILED: timed out after {args.timeout}s", "red")
+            failed += 1
+        except Exception as e:
+            ui.stream_result(i, len(repos), repo, f"FAILED: {e}", "red")
+            failed += 1
+
+    ui.console.print()
+    ui.info(f"done: {ok} ok, {failed} failed, {skipped} skipped (too large).")
+
+
 def cmd_gguf(args, machine):
     if not machine.bandwidth_gbs:
         ui.error(
@@ -204,6 +288,13 @@ def main():
     p_sync.add_argument("--author", default="mlx-community")
     p_sync.add_argument("--limit", type=int, default=None, help="cap on how many to fetch")
 
+    p_sweep = sub.add_parser(
+        "sweep", help="probe every cached model one at a time, streaming results as they finish"
+    )
+    p_sweep.add_argument("--library", choices=["mlx", "vllm"], default="mlx")
+    p_sweep.add_argument("--limit", type=int, default=None, help="cap on how many to probe")
+    p_sweep.add_argument("--timeout", type=int, default=120, help="per-model timeout in seconds")
+
     args = parser.parse_args()
     machine = detect_machine()
 
@@ -220,6 +311,8 @@ def main():
         cmd_gguf(args, machine)
     elif args.command == "sync-configs":
         cmd_sync_configs(args, machine)
+    elif args.command == "sweep":
+        cmd_sweep(args, machine)
     else:
         interactive_wizard(machine)
 

@@ -93,6 +93,18 @@ def info(msg: str):
     console.print(f"[dim]{msg}[/]")
 
 
+def stream_in_progress(i: int, total: int, repo_id: str):
+    """The currently-running model's line -- overwritten in place until it
+    finishes, at which point stream_result replaces it with a permanent
+    line and moves to a fresh one for the next model."""
+    console.print(f"[dim][{i}/{total}][/] {repo_id} - kører....", end="\r")
+
+
+def stream_result(i: int, total: int, repo_id: str, text: str, style: str = "white"):
+    pad = " " * max(0, 100 - len(repo_id))
+    console.print(f"[dim][{i}/{total}][/] {repo_id} - [{style}]{text}[/]{pad}")
+
+
 def progress_step(i: int, total: int, repo_id: str, action: str = "probing"):
     """Overwrite the same line with '[i/total] <action> <repo>' so a long
     search+rank or sync run (dozens to thousands of candidates, each
