@@ -396,6 +396,40 @@ collapsing back onto one shared ratio, or moving the flat
 absorb the effect together instead of one uncalibrated knob compensating
 for the other.
 
+### 5c. Second integration attempt (additive, not multiplicative) -- also made things WORSE
+
+A later research pass proposed exactly the alternative framing item 5b
+called for: instead of dividing routed-expert bytes by a width-dependent
+effective bandwidth (multiplicative, touches the shared bandwidth
+denominator), replace the flat `MOE_LAYER_OVERHEAD_SEC` with a
+width-dependent ADDITIVE dispatch-latency term per MoE layer,
+`τ_dispatch(w) = τ_base_moe · (1 + Kw/w)`, using `Kw=772.7` FIXED from
+the same independent 8-point sweep (not re-fit, so still only 3 free
+parameters total: `RATIO`, `BASE_OVERHEAD_SEC`, `τ_base_moe`). This is a
+structurally different mechanism from 5b's attempt -- it doesn't touch
+how non-MoE bytes are priced at all, only adds an extra per-MoE-layer
+term.
+
+Tested against the current best 9-point set (2.35%/5.0% mean/max):
+result was **4.90% mean / 10.19% max -- worse, a third confirmed
+negative result.** The two genuinely narrow-expert points did improve
+(`Qwen3-Coder-30B-A3B`: -5.0% -> -1.7%; `gemma-4-26b-a4b`: +3.6% ->
++3.5%, about even), but every other point got meaningfully worse
+(`Huihui-LFM2.5-1.2B`: -2.1% -> -9.2%; `LFM2-8B-A1B`: +3.3% -> +10.2%;
+`granite-4.0-h-tiny`: -1.4% -> -5.4%; `NVIDIA-Nemotron-3-Nano`: +2.0% ->
++4.3%). **Not adopted.**
+
+Three independent attempts now (5b's multiplicative bandwidth discount,
+the 4-parameter freely-fit separate-MoE-ratio check in the same section,
+and this additive dispatch term) have all failed to net-improve this
+9-point set using the real, verified `eta(w)`/`Kw` sweep data. This is
+now a reasonably solid conclusion, not just an unlucky first attempt:
+whatever the narrow-MoE residual in `Qwen3-Coder-30B-A3B` and
+`gemma-4-26b-a4b` actually is, it either isn't cleanly the same
+mechanism the synthetic sweep measured, or isolating it needs
+meaningfully more real data than 9 points to avoid trading error onto
+the other 7. Not worth a fourth attempt without new ground truth.
+
 ## 7. Small/fast dense-hybrid models don't fit the same global 3-parameter model -- confirmed, not just LFM2.5-specific
 
 Downloaded and measured `Josiefied-Qwen3.5-0.8B-gabliterated-v1-4bit`
