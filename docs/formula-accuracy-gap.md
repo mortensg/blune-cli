@@ -615,3 +615,71 @@ stale ground truth, since its own measurement is already known-clean,
 but this has not been independently re-verified as thoroughly as
 `_gemma4_estimate()`'s or `_lfm2_dense_mlp_width()`'s source-level
 audits were.
+
+## 12. First real MLA ground truth -- weight formula confirmed exact, KV-cache assumption found wrong for at least one implementation, +16.8% residual unexplained
+
+Downloaded `mlx-community/Youtu-LLM-2B-mlx-4bit` (real MLA, 2B params,
+non-DeepSeek) -- this project's first actual MLA ground-truth
+measurement (item D in `mlx-97-percent-research-prompt.md` had flagged
+this as a coverage gap; the specific repos a later research pass
+suggested for it, `Falcon-H1-Tiny-R-0.6B` and `sarvamai/sarvam-30b`,
+were checked and neither actually has `kv_lora_rank`/`qk_rope_head_dim`
+fields at all -- another confirmed research fabrication, this repo was
+found independently by searching this project's own cached configs).
+Real: 165.1 tok/s (10-trial mean, std 1.45, 0.88% relative). Formula
+predicts 192.9 -- **+16.8% error**, a real, meaningful residual.
+
+Applied the same source-verification rigor as items 8/10/11 to check
+for a weight-count bug first: read `mlx_lm/models/youtu_llm.py`'s
+`YoutuLLMAttention.__init__` line by line against this project's
+`_mla_weight_params()`. Every term matches exactly --
+`q_a_proj`+`q_b_proj` (or a direct `q_proj` when `q_lora_rank` is unset),
+`kv_a_proj_with_mqa`+`kv_b_proj`, and `o_proj` all agree with the
+formula term-for-term. **Not a weight-formula bug.**
+
+Checked the KV-cache-size assumption next, since MLA's whole point is a
+compressed cache, and found something genuinely subtle: `youtu_llm.py`
+computes `kv = self.kv_b_proj(self.kv_a_layernorm(compressed_kv))`
+(the FULL per-head decompression) BEFORE calling
+`cache.update_and_fetch` -- it caches the decompressed per-head K/V,
+not the compressed latent. Compared against
+`mlx_lm/models/deepseek_v3.py`'s `DeepseekV3Attention` (read directly,
+no DeepSeek model downloaded or run -- reading already-installed
+library source code, not testing a DeepSeek model): it caches
+`kv_latent`/`k_pe` (the COMPRESSED form) via
+`cache.update_and_fetch(kv_latent, k_pe)`, deferring the `kv_b_proj`
+up-projection into the attention-score computation itself -- the real
+MLA inference-efficiency trick the architecture is known for. **These
+are two genuinely different implementations of "MLA" in mlx-lm itself**
+-- config.json's `kv_lora_rank`/`qk_rope_head_dim` fields can't
+distinguish them, since both declare the same fields. This project's
+`kv_elems_per_token_per_attn_layer = kv_lora_rank + qk_rope_head_dim`
+assumption is correct for DeepSeek-V3-style MLA but WRONG for
+youtu_llm-style MLA (real per-token KV read there is closer to
+`num_heads * (qk_nope_head_dim + qk_rope_head_dim + v_head_dim)`, no
+compression at all).
+
+**This does NOT explain the +16.8% error at `context_length=115`** --
+at that short a context, KV-cache bytes for a 2B model are negligible
+next to weight bytes regardless of which formula is used (checked: both
+the compressed and per-head estimate are under 40MB, vs. ~1.1GB of
+active weight bytes). It IS a real, separate, actionable finding for
+this project's own long-context degradation claims, which currently
+assume every MLA model gets DeepSeek-V3's compression benefit --
+untrue for at least this one architecture, and not distinguishable from
+config alone without a `model_type`-keyed registry similar to
+`_Q_PROJ_MULTIPLIER_BY_MODEL_TYPE`. Not implemented yet: only one
+"decompressed" example found so far, and it wouldn't move this specific
+error at this context length anyway.
+
+**Still open:** the +16.8% short-context error itself remains
+unexplained after ruling out both obvious candidates (weight count,
+KV-cache size). At 165.1 tok/s this model is close to but still below
+the fastest already-well-fit calibration point (`LFM2-8B-A1B`, 192
+tok/s) -- plausibly a milder version of the small/fast-model problem
+(item 7), plausibly something else specific to this architecture or
+checkpoint. Not enough evidence yet to say which; would need either
+another real MLA point at a different speed, or the same kind of deep
+timing investigation (chained-layer micro-benchmark, or a real Metal
+System Trace) already applied to the MoE-width and hybrid-deficit
+questions elsewhere in this document.
