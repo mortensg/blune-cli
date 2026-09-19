@@ -683,3 +683,53 @@ another real MLA point at a different speed, or the same kind of deep
 timing investigation (chained-layer micro-benchmark, or a real Metal
 System Trace) already applied to the MoE-width and hybrid-deficit
 questions elsewhere in this document.
+
+## 13. Long-context KV-cache scaling -- dense case validated, hybrid case reveals a real formula limitation, one specific research claim debunked
+
+Directly measured real decode-throughput degradation as context grows,
+using two already-established real ground-truth models at
+`L ∈ {128, 2048, 8192, 16384}` (3-trial means, discarding none --
+all runs were clean and low-variance):
+
+    Qwen2.5-Coder-7B-Instruct-4bit (dense): 57.28 -> 54.79 -> 49.40 -> 43.79 tok/s (-23.5% total)
+    Qwen3.6-35B-A3B-4bit (hybrid, 10/40 full-attn): 90.05 -> 87.46 -> 81.25 -> 74.26 tok/s (-17.5% total)
+
+A research pass had claimed the hybrid model's degradation rate would
+be "exactly 25%" of the dense rate, matching the 10/40 full-attention
+layer ratio. **This specific claim is wrong** -- the real ratio is
+17.5/23.5 = **74.5%**, roughly 3x the claimed value. The qualitative
+direction (hybrid degrades less than dense) is correct, but the
+"exactly matches the full-attention layer fraction" mechanism is not:
+every layer still does real per-step compute regardless of whether its
+KV-cache grows, so a naive "10/40 of the bytes -> 10/40 of the slowdown"
+model was never going to hold.
+
+Checked the formula's own predictions against both real curves:
+- **Dense case: accurate.** Formula: 56.20/54.70/50.40/45.70 vs. real
+  57.28/54.79/49.40/43.79 -- errors of -1.9%/-0.2%/+2.0%/+4.4%, staying
+  under 5% even out to 16K context.
+- **Hybrid case: a real, growing gap.** Formula: 90.90/89.50/85.30/80.20
+  vs. real 90.05/87.46/81.25/74.26 -- errors of +0.9%/+2.3%/+5.0%/+8.0%,
+  growing steadily worse with context. The formula predicts a milder
+  degradation (90.90->80.20, -11.8%) than reality (-17.5%) shows.
+
+**Root cause, most likely:** this project's whole speed model is
+memory-bandwidth-only (`tok/s = bandwidth / bytes_per_token`) -- it
+counts KV-cache bytes READ per step but has no term at all for
+attention's own compute cost (softmax + weighted sum over L cached
+keys), which grows with context independently of memory bandwidth.
+At short context this is negligible next to bandwidth-bound weight
+streaming, which is why the formula is accurate at `context_length=115`
+(this project's own calibration default) and even out to L=2048. By
+L=16384, real attention FLOPs in the 10 full-attention layers are
+plausibly no longer negligible, and the formula -- having no compute
+term to grow with them -- systematically under-predicts the real
+slowdown. **Not fixed here** -- this would need a genuinely new term
+(attention FLOPs-per-token, likely a function of context_length times
+active full-attention-layer count times head_dim/heads, calibrated
+against real long-context measurements across more models) rather than
+a config-level bug fix, and this project's calibration data is all at
+short context (115 tokens) -- long-context accuracy specifically has
+never been part of what any of this document's refits optimized for.
+Worth flagging clearly in the CLI's own output when `context_length` is
+requested well beyond what the formula was validated at.
