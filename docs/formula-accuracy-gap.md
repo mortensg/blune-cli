@@ -798,12 +798,50 @@ streaming, which is why the formula is accurate at `context_length=115`
 L=16384, real attention FLOPs in the 10 full-attention layers are
 plausibly no longer negligible, and the formula -- having no compute
 term to grow with them -- systematically under-predicts the real
-slowdown. **Not fixed here** -- this would need a genuinely new term
-(attention FLOPs-per-token, likely a function of context_length times
-active full-attention-layer count times head_dim/heads, calibrated
-against real long-context measurements across more models) rather than
-a config-level bug fix, and this project's calibration data is all at
-short context (115 tokens) -- long-context accuracy specifically has
-never been part of what any of this document's refits optimized for.
-Worth flagging clearly in the CLI's own output when `context_length` is
-requested well beyond what the formula was validated at.
+slowdown.
+
+**Characterized the residual's shape before considering a fix, given
+this project's own track record on adding structure without enough
+data** (three separate MoE-width integration attempts all failed net-
+improvement, see items 5b/5c). Converting tok/s back to raw per-token
+time and subtracting the formula's own prediction:
+
+    L      real time    formula time   residual
+    128    11.105ms     11.001ms       +0.104ms
+    2048   11.434ms     11.173ms       +0.261ms
+    8192   12.308ms     11.723ms       +0.584ms
+    16384  13.466ms     12.469ms       +0.997ms
+
+The residual grows roughly with `L` (a 2-point linear fit through the
+first and last rows predicts the middle two within 6-24%, not exact but
+directionally consistent with an attention-FLOPs mechanism, which
+should scale linearly in context length) -- this is real, qualitative
+support for the "missing compute roofline" explanation above, not just
+a plausible-sounding story.
+
+**Deliberately NOT hard-coded into the formula.** This entire curve
+comes from ONE model (`Qwen3.6-35B-A3B-4bit`) at 4 context lengths,
+3 trials each -- far short of what would be needed to responsibly fit a
+new global parameter (this project's own stated bar, already invoked
+against itself three times this session, is 5+ points per architectural
+family; here it would be fitting a coefficient from a single point in
+an even narrower "family" of one). Adding a FLOPs term calibrated on
+this alone would very plausibly repeat the exact failure mode items
+5b/5c already hit twice: a new parameter that fits its one motivating
+case while quietly making every other point worse. **What would
+actually justify implementing it:** long-context curves (the same
+4-context-length sweep already run here) on at least 2-3 more hybrid
+models with different full-attention-layer counts/head_dims, to see
+whether a single FLOPs-based coefficient generalizes across them before
+trusting it. Until then, the honest, low-risk fix is a CLI-level
+caveat rather than a formula change:
+
+    if context_length > 2048 and model_has_full_attention_layers:
+        warn("accuracy beyond L=2048 is not independently validated for "
+             "hybrid attention architectures; expect underestimated "
+             "slowdown -- see docs/formula-accuracy-gap.md item 13")
+
+Not implemented as an actual CLI change in this pass (the CLI's output
+plumbing wasn't touched this session) -- recorded here as the concrete,
+scoped, low-risk next step, in contrast to the new formula parameter
+that isn't justified by the data in hand yet.
