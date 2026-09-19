@@ -472,6 +472,80 @@ input), total layer count, or total active bytes. Needs at least one
 more small/fast real measurement (a third point) before any specific
 functional form could be fit rather than guessed.
 
+### 7b. Third fast-model point added; layer-count hypothesis tested and found insufficient
+
+Downloaded `mlx-community/SmolLM-135M-4bit` (dense llama-family, 135M
+params, 30 layers) as the third point item 7 called for -- real 564.86
+tok/s (10-trial mean, std 3.51% relative, noisier than this project's
+usual sub-1% since even small jitter is a bigger fraction of a ~1.8ms
+per-token budget at this speed).
+
+Tested the most obvious candidate variable from the list above: replace
+flat `BASE_OVERHEAD_SEC` with `PER_LAYER_OVERHEAD_SEC * n_layers`, fit
+across all 12 real `mlx` measurements. Result is a genuine, real mixed
+picture, not a clean win or a clean loss:
+- The 9-point core set plus two moderate-speed additions
+  (`Youssofal/Qwen3.6-35B-A3B-*`, `Youtu-LLM-2B`) fit well: -6.2% to
+  +5.3%, including +1.6% and +3.9% on the two additions.
+- The three most extreme points remain badly wrong, and don't even
+  agree with each other on direction despite similar layer counts
+  (24-30): `Josiefied-Qwen3.5-0.8B` +15.5%, `mamba-130m` -30.3%, this
+  new `SmolLM-135M` point +39.4%. A layer-count-only model cannot
+  reconcile a model it under-predicts with two others of similar depth
+  that it over-predicts -- something else (quantized 4-bit dispatch
+  path vs. `mamba-130m`'s unquantized bf16, or MLP-width-specific
+  overhead) plausibly differs between them that layer count alone
+  doesn't capture.
+- Isolated to just the original 9-point core set (dropping the 5
+  held-out/extreme additions), the per-layer reformulation gives
+  2.64%/6.59% mean/max -- slightly WORSE than the current flat model's
+  2.35%/5.0%.
+
+**Not adopted.** It doesn't clearly beat the safest, most-validated
+9-point fit, and doesn't fully solve the problem it was meant to solve
+either.
+
+**A dequantization-overhead hypothesis was formed here, then directly
+tested and refuted -- worth recording precisely to avoid re-proposing
+it.** The initial reading of the 3-point pattern (`Josiefied` and
+`SmolLM-135M`, both 4-bit, over-predicted; `mamba-130m`, unquantized
+bf16, under-predicted) suggested per-group scale/bias dequantization
+might be a real missing per-layer cost. This is directly testable: this
+project's own cache already had `mlx-community/SmolLM-135M-fp16`, the
+SAME architecture as the existing 4-bit point with quantization as the
+only real difference. Downloaded and measured it: real 488.79 tok/s
+(10-trial mean, std 2.81% relative). Checked against the current
+*production* (flat-overhead) formula for a fair, consistent comparison
+across all four extreme points:
+
+    Josiefied-Qwen3.5-0.8B (4-bit):      real 339.7   pred 457.6   +34.7%
+    mamba-130m (bf16, pure SSM):         real 490.8   pred 388.1   -20.9%
+    SmolLM-135M-4bit:                    real 564.9   pred 1502.3  +166.0%
+    SmolLM-135M-fp16 (unquantized):      real 488.8   pred 660.5   +35.1%
+
+**The dequantization hypothesis is refuted:** `SmolLM-135M-fp16` has NO
+dequantization step at all, yet it's over-predicted in the SAME
+direction and roughly the SAME magnitude as its own 4-bit sibling's
+fp16-comparable competitor (`Josiefied`, +34.7%) -- if dequant overhead
+were the differentiator, the unquantized variant should have looked
+like `mamba-130m`, not like the quantized models. It didn't.
+
+**A cleaner, still-unconfirmed pattern emerges instead:** the odd one
+out isn't "unquantized" -- it's `mamba-130m` specifically, which is
+also the only PURE-SSM (no attention at all, custom Metal scan kernel)
+architecture among the four. The three attention-based small/fast
+transformers (`Josiefied`, both `SmolLM` variants) are ALL
+over-predicted, of varying magnitude (34.7% to 166.0%) but the same
+sign; the one non-attention architecture is under-predicted instead.
+This suggests the small/fast-model problem may really be two separate
+phenomena bundled together -- a general "fixed overhead too high (or
+too low) at extreme speed" effect for attention transformers, and a
+architecturally distinct effect for pure-SSM decode -- rather than one
+effect explainable by a single variable (layer count, quantization
+state, or otherwise). Not confirmed: only one pure-SSM fast point
+exists. All four extreme points remain in `measurements.json` as real
+ground truth for whenever this gets properly resolved.
+
 ## 8. Gemma4's parallel dense+MoE MLP and per-layer-type attention -- RESOLVED
 
 `gemma-4-26b-a4b-it-4bit` was this project's single worst-fit
