@@ -108,6 +108,44 @@ def test_mla_kv_cache_much_smaller_than_gqa():
     assert gqa_kv / mla_kv > 20, f"expected >20x reduction, got {gqa_kv / mla_kv:.1f}x"
 
 
+def test_mla_decompressed_cache_variant_uses_full_per_head_size():
+    """Regression test: mlx_lm.models.youtu_llm.YoutuLLMAttention
+    decompresses via kv_b_proj BEFORE calling cache.update_and_fetch
+    (confirmed reading its source), unlike DeepSeek-V3/GLM4-MoE-Lite
+    style MLA which caches the compressed latent and defers the
+    up-projection into the attention-score computation. A youtu_llm
+    config must NOT get the ~50-100x compression benefit a generic MLA
+    config gets -- its real per-token KV-cache is
+    num_heads*(qk_nope_head_dim+qk_rope_head_dim+v_head_dim)."""
+    heads = 16
+    qk_nope, qk_rope, v_head_dim = 128, 64, 128
+    youtu_config = {
+        "model_type": "youtu_llm",
+        "hidden_size": 2048,
+        "num_hidden_layers": 32,
+        "num_attention_heads": heads,
+        "kv_lora_rank": 512,
+        "qk_rope_head_dim": qk_rope,
+        "qk_nope_head_dim": qk_nope,
+        "v_head_dim": v_head_dim,
+        "intermediate_size": 6144,
+        "vocab_size": 128256,
+    }
+    generic_mla_config = {**youtu_config, "model_type": "some_other_mla"}
+
+    youtu_kv = estimate_kv_bytes_per_token(youtu_config, context_length=1000)
+    generic_kv = estimate_kv_bytes_per_token(generic_mla_config, context_length=1000)
+    assert youtu_kv is not None and generic_kv is not None
+    assert youtu_kv > generic_kv * 3, (
+        f"expected youtu_llm's decompressed cache to be much larger, "
+        f"got youtu={youtu_kv} generic={generic_kv}"
+    )
+    per_token_elems = heads * (qk_nope + qk_rope + v_head_dim)
+    num_layers = youtu_config["num_hidden_layers"]
+    expected = per_token_elems * 2 * 1000 * num_layers  # 2 bytes/elem, 1000 tokens, all layers
+    assert youtu_kv == expected
+
+
 def test_hybrid_ssm_layers_excluded_from_kv_growth():
     """Mamba/linear-attention layers don't accumulate a growing KV-cache
     -- a model where most layers are SSM should show much less KV growth

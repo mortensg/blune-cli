@@ -74,6 +74,26 @@ _Q_PROJ_MULTIPLIER_BY_MODEL_TYPE = {
     "qwen3_5_moe": 2.0,
 }
 
+# MLA (kv_lora_rank + qk_rope_head_dim present) has TWO genuinely
+# different real implementations in mlx-lm, invisible from config.json
+# fields alone since both declare the same fields:
+#   - DeepSeek-V3-style (mlx_lm.models.deepseek_v3.DeepseekV3Attention,
+#     confirmed also in glm4_moe_lite.py): caches the COMPRESSED latent
+#     (kv_latent, k_pe) via cache.update_and_fetch, deferring the
+#     kv_b_proj up-projection into the attention-score computation --
+#     the real MLA cache-compression trick. This is the DEFAULT
+#     assumption below (kv_lora_rank + qk_rope_head_dim per token).
+#   - youtu_llm-style (mlx_lm.models.youtu_llm.YoutuLLMAttention,
+#     confirmed by reading its source): decompresses via kv_b_proj
+#     BEFORE calling cache.update_and_fetch, so it caches full per-head
+#     K/V like ordinary GQA -- num_heads*(qk_nope_head_dim+
+#     qk_rope_head_dim+v_head_dim) per token, 4-6x more than the
+#     compressed default. Only affects long-context KV-cache sizing,
+#     not short-context speed (the difference is under 40MB at this
+#     project's own context_length=115 default, negligible next to
+#     weight bytes for any real model size).
+_MLA_DECOMPRESSED_CACHE_MODEL_TYPES = {"youtu_llm"}
+
 
 def _infer_bits(config: dict, path_hint: str = "") -> int:
     """Bits-per-weight: prefer an explicit quantization config (honoring
@@ -699,11 +719,20 @@ def _analyze(config: dict) -> Optional[ArchProfile]:
             attn_weight_params_per_layer += indexer_params
 
     if is_mla:
-        # MLA caches only the compressed latent + decoupled RoPE key per
-        # token per layer, not full per-head K/V -- typically 50-100x
-        # smaller than standard MHA/GQA cache. This is THE reason MLA
-        # exists; approximating it as GQA was a real accuracy gap.
-        kv_elems_per_token_per_attn_layer = kv_lora_rank + qk_rope_head_dim
+        model_type = config.get("model_type") or c.get("model_type")
+        qk_nope_head_dim = c.get("qk_nope_head_dim")
+        if model_type in _MLA_DECOMPRESSED_CACHE_MODEL_TYPES and heads and qk_nope_head_dim:
+            # This implementation decompresses to full per-head K/V
+            # before caching -- see _MLA_DECOMPRESSED_CACHE_MODEL_TYPES.
+            v_head_dim = c.get("v_head_dim") or qk_nope_head_dim
+            kv_elems_per_token_per_attn_layer = heads * (qk_nope_head_dim + qk_rope_head_dim + v_head_dim)
+        else:
+            # MLA caches only the compressed latent + decoupled RoPE key
+            # per token per layer, not full per-head K/V -- typically
+            # 50-100x smaller than standard MHA/GQA cache. This is THE
+            # reason MLA exists; approximating it as GQA was a real
+            # accuracy gap.
+            kv_elems_per_token_per_attn_layer = kv_lora_rank + qk_rope_head_dim
     elif kv_heads and head_dim:
         kv_elems_per_token_per_attn_layer = 2 * kv_heads * head_dim
     else:

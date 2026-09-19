@@ -729,14 +729,22 @@ compression at all).
 at that short a context, KV-cache bytes for a 2B model are negligible
 next to weight bytes regardless of which formula is used (checked: both
 the compressed and per-head estimate are under 40MB, vs. ~1.1GB of
-active weight bytes). It IS a real, separate, actionable finding for
-this project's own long-context degradation claims, which currently
-assume every MLA model gets DeepSeek-V3's compression benefit --
-untrue for at least this one architecture, and not distinguishable from
-config alone without a `model_type`-keyed registry similar to
-`_Q_PROJ_MULTIPLIER_BY_MODEL_TYPE`. Not implemented yet: only one
-"decompressed" example found so far, and it wouldn't move this specific
-error at this context length anyway.
+active weight bytes). It IS a real, separate finding for this project's
+own long-context degradation claims, which previously assumed every MLA
+model gets DeepSeek-V3's compression benefit -- untrue for at least this
+one architecture. **RESOLVED:** checked `mlx_lm/models/glm4_moe_lite.py`
+too (this project's other cached MLA family, GLM) and confirmed it uses
+the compressed-cache pattern (`cache.update_and_fetch(kv_latent, k_pe)`,
+same as DeepSeek-V3) -- the decompressed variant looks genuinely rare
+(1 confirmed case so far), which is why a small, explicit
+`_MLA_DECOMPRESSED_CACHE_MODEL_TYPES` set (currently just `{"youtu_llm"}`)
+was the right shape for this fix rather than a heuristic: everything not
+explicitly listed keeps the compressed-cache assumption, and a real new
+"decompressed" architecture just needs one line added once found. Wired
+into `_analyze()`'s KV-cache-size branch, verified against the real
+Youtu-LLM-2B config (correctly computes 37.7MB at context_length=115,
+matching the hand-derived estimate above) and covered by a new
+regression test.
 
 **Still open:** the +16.8% short-context error itself remains
 unexplained after ruling out both obvious candidates (weight count,
