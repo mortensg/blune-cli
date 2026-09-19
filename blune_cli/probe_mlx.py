@@ -63,10 +63,35 @@ points (this project's own stated bar is 5+ per family for a fully
 stable fit) -- treat it as a real, directionally-confirmed improvement
 over applying the dense/MoE ratio to hybrid architectures, not a
 precisely-calibrated constant.
+
+IMPORTANT: this deficit is specific to GatedDeltaNet, NOT a general
+property of "has any recurrent/SSM layer". The original detection
+(`_analyze(config).n_ssm_layers > 0`) lumped Mamba-2-hybrid
+architectures (granite-4.0-h-tiny, Nemotron-H) into the same bucket as
+GatedDeltaNet-hybrids -- wrong, confirmed with real data:
+    granite-4.0-h-tiny-6bit-MLX (Mamba-2 hybrid): real 117.4 tok/s, raw
+      probe 90.0 -- ratio 0.766. Using the GatedDeltaNet 0.655 value
+      gave +17.0% error; the plain dense/MoE 0.82 gives -7.4%.
+    NVIDIA-Nemotron-3-Nano-30B-A3B (Mamba-2 hybrid, via a SEPARATE
+      dedicated size_estimate.py estimator that `_analyze()` doesn't
+      understand at all, so it never even hit the old detection check):
+      real 58.0 tok/s, raw probe 51.0 -- ratio 0.880. The plain 0.82
+      gives +7.5% error.
+The two Mamba-2-hybrid ratios (0.766, 0.880) average to 0.823 --
+essentially identical to `CALIBRATION_RATIO` (0.82), not to
+`HYBRID_CALIBRATION_RATIO` (0.655). This strongly suggests the large
+deficit is a real property of GatedDeltaNet's specific custom Metal
+kernel implementation, not Mamba-family recurrence in general. Fixed by
+gating `HYBRID_CALIBRATION_RATIO` on `_gated_delta_net_params(c, hidden)
+is not None` specifically (still requires `n_ssm_layers > 0` too, so a
+pure/non-hybrid GatedDeltaNet model -- none seen yet -- would still
+route here correctly) rather than the generic SSM-layer count -- Mamba-
+2-hybrid architectures now correctly fall through to the plain
+`CALIBRATION_RATIO`.
 """
 from typing import Optional
 
-from .size_estimate import _analyze, _infer_bits
+from .size_estimate import _analyze, _gated_delta_net_params, _infer_bits
 
 CALIBRATION_RATIO = 0.82  # probe_tok_s / real_tok_s, dense/MoE architectures -- see module docstring
 HYBRID_CALIBRATION_RATIO = 0.655  # probe_tok_s / real_tok_s, GatedDeltaNet/SSM-hybrid architectures -- see module docstring, 3 real points
@@ -183,8 +208,20 @@ def probe(
     raw_decode_tps = decode_tokens / decode_time
 
     arch = _analyze(config)
-    is_hybrid = bool(arch and arch.n_ssm_layers)
-    ratio = HYBRID_CALIBRATION_RATIO if is_hybrid else CALIBRATION_RATIO
+    c = config.get("text_config", config)
+    hidden = c.get("hidden_size")
+    # The large real-vs-probe deficit is specific to GatedDeltaNet's
+    # custom Metal kernel (gated_delta.py's mx.fast.metal_kernel), not a
+    # general property of "has a recurrent/SSM layer type" -- confirmed
+    # by testing two real Mamba-2-hybrid architectures (granite-4.0-h-
+    # tiny, NVIDIA-Nemotron-3-Nano) that were being lumped into the same
+    # bucket via `n_ssm_layers > 0`: their real raw-probe ratios (0.766,
+    # 0.880) average to 0.823, essentially identical to the plain
+    # dense/MoE CALIBRATION_RATIO (0.82), not the 0.655 GatedDeltaNet
+    # value -- applying 0.655 to granite gave +17.0% error. See module
+    # docstring for the full before/after.
+    is_gated_delta_hybrid = bool(arch and arch.n_ssm_layers and hidden and _gated_delta_net_params(c, hidden) is not None)
+    ratio = HYBRID_CALIBRATION_RATIO if is_gated_delta_hybrid else CALIBRATION_RATIO
     calibrated_tps = raw_decode_tps / ratio if calibrate else raw_decode_tps
 
     n_layers = config.get("num_hidden_layers") or config.get(

@@ -282,6 +282,38 @@ checkpoint -- the only way to either confirm or debunk the command-
 buffer-rollover idea above with real evidence instead of narrowing by
 elimination like the three ruled-out hypotheses did.
 
+**The deficit is GatedDeltaNet-specific, not general-SSM -- RESOLVED
+detection bug.** The original hybrid detection
+(`_analyze(config).n_ssm_layers > 0`) lumped Mamba-2-hybrid
+architectures into the same "hybrid" bucket as GatedDeltaNet-hybrids,
+applying the same 0.655 ratio to both. Tested directly against two real
+Mamba-2-hybrid ground-truth points already in this project's own data:
+
+    granite-4.0-h-tiny-6bit-MLX: real 117.4 tok/s, raw probe 90.0 --
+      ratio 0.766. The GatedDeltaNet ratio (0.655) gives +17.0% error;
+      the plain dense/MoE ratio (0.82) gives -7.4%.
+    NVIDIA-Nemotron-3-Nano-30B-A3B (Nemotron-H, a Mamba-2 hybrid, routed
+      through a SEPARATE dedicated size_estimate.py estimator that
+      `_analyze()` doesn't understand at all -- meaning the old
+      detection never even triggered for it, by accident rather than
+      design): real 58.0 tok/s, raw probe 51.0 -- ratio 0.880. Plain
+      0.82 gives +7.5% error.
+
+The two Mamba-2-hybrid ratios (0.766, 0.880) average to **0.823** --
+essentially identical to the plain `CALIBRATION_RATIO` (0.82), nothing
+like the GatedDeltaNet value. This is strong evidence the large
+synthetic-probe deficit is a property of GatedDeltaNet's specific
+custom Metal kernel implementation, not Mamba-family recurrence in
+general. Fixed by gating `HYBRID_CALIBRATION_RATIO` on
+`_gated_delta_net_params(c, hidden) is not None` (in addition to
+`n_ssm_layers > 0`) rather than the generic SSM-layer count --
+Mamba-2-hybrid architectures now correctly fall through to the plain
+ratio, landing at -7.4%/+7.5% instead of the previous +17.0%/(accidental
++7.5%-by-luck). This also strengthens the case for candidate mechanism
+(1) above: the deficit tracking GatedDeltaNet specifically, not SSMs
+generally, points more precisely at `_gated_delta_kernel` itself as the
+place to look with a real Metal System Trace.
+
 ## 5. LFM2-8B-A1B / granite-4.0-h-tiny's remaining active-bytes gap -- partially confirmed
 
 Re-analyzed the existing chained-layer MoE micro-benchmark (already run
