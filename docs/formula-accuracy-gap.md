@@ -351,6 +351,64 @@ ratio, landing at -7.4%/+7.5% instead of the previous +17.0%/(accidental
 generally, points more precisely at `_gated_delta_kernel` itself as the
 place to look with a real Metal System Trace.
 
+### 4b. First real Metal System Trace capture -- one fabricated claim definitively refuted, real command-buffer behavior characterized
+
+Finally attempted the `xctrace` "Metal System Trace" capture this
+document has been deferring since item 4's first draft. It works, and
+`xctrace export` can pull real, structured, per-command-buffer data out
+of the resulting `.trace` bundle without needing the Instruments GUI --
+worth recording since this wasn't obvious going in. Captured a real
+trace of `probe_mlx.py`'s own synthetic decode loop for
+`Qwen3.6-35B-A3B-4bit` (30 decode tokens, GatedDeltaNet+MoE hybrid, no
+model download needed since the probe builds random weights) and
+exported the `metal-application-command-buffer-submissions` table
+(5,489 real rows, `xctrace export --xpath ... --output ...`, then
+parsed with `xml.etree.ElementTree`, resolving the trace format's
+`id`/`ref` cross-references).
+
+**Definitively refutes the specific `MLX_MAX_OPS_PER_BUFFER = 50`
+encoder-rollover claim already flagged as likely-fabricated in item 4
+above** (that flag was based on the constant not appearing in the
+compiled MLX binary; this is now independently confirmed from the
+runtime's own real behavior): every single command buffer in the real
+capture has `num-encoders` of exactly 0 or 1 -- never anywhere near 50,
+and never more than 1. There is no "50 ops then roll to a new encoder"
+pattern happening at all for this workload.
+
+**What real command-buffer behavior actually looks like** (5,489 total
+submissions over 30 decode tokens -- roughly 183 buffers per token,
+i.e. MLX is NOT batching a whole decode step into one or a few command
+buffers here, contrary to what a "the whole graph is one buffer"
+mental model would suggest):
+- Median total buffer-to-buffer duration: 72.6us: p10 1.2us, p90
+  19.5ms, p99 81.2ms -- most gaps are tiny, but a real, substantial
+  long tail exists (some buffers are separated by tens of
+  milliseconds).
+- Median encoder-time (GPU work actually being done), for the ~67% of
+  buffers that have an encoder at all: 108.9us, p10 21.2us, p90 248.1us
+  -- comparatively tight and consistent, i.e. the GPU's own compute
+  time per dispatch is NOT where the large variance comes from.
+- 1,810 of 5,489 buffers (33%) have `num-encoders = 0` -- likely
+  signal-only/barrier submissions rather than genuine compute
+  dispatches, consistent with MLX's dependency-tracking machinery
+  needing its own synchronization points beyond pure compute encoders.
+
+**Interpretation, still provisional:** the long-tail buffer-to-buffer
+gaps (up to tens of ms, vs. a ~100us-scale median encoder time) are
+consistent with real, non-trivial CPU-side dispatch/scheduling latency
+existing between some command buffers -- but the magnitude is highly
+variable, not a fixed per-buffer constant, and this trace alone can't
+say whether the long-tail buffers specifically correspond to
+GatedDeltaNet's custom kernel or something else (would need per-thread
+call-stack correlation within the trace, not attempted here). **Not yet
+done: the actual comparison this investigation was for** -- tracing a
+REAL downloaded checkpoint's decode loop the same way and diffing
+against this synthetic trace, to see whether the num-encoders-per-buffer
+pattern or the long-tail-gap distribution differs between random and
+real weights. That would need re-downloading a large real checkpoint
+(already cleaned up from disk this session) and is the natural next
+step, not completed here.
+
 ## 5. LFM2-8B-A1B / granite-4.0-h-tiny's remaining active-bytes gap -- partially confirmed
 
 Re-analyzed the existing chained-layer MoE micro-benchmark (already run
