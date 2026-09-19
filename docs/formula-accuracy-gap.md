@@ -220,12 +220,43 @@ mmap-reloaded version was 4.9% SLOWER, not faster** -- the wrong
 direction for TLB thrashing to be the explanation. Ruled out, same
 decisive way the warmup hypothesis was.
 
-Remaining untested candidate mechanism: something GatedDeltaNet's
+Also tested the **subnormal-float-stall** hypothesis (a research pass's
+proposed mechanism: `mx.random.normal()`-initialized weights can
+dequantize to IEEE 754 subnormal values that trigger slow microcode
+paths on Apple Silicon, whereas trained models keep normalized
+distributions). Built the same real model twice, once with
+`mx.random.normal()` weights (probe_mlx.py's actual default) and once
+with every float replaced by a constant `0.05` (subnormals structurally
+impossible), quantized identically, timed identically. **Result: 47.3
+vs. 47.0 tok/s, a 0.5% difference -- within noise, ruled out.** Third
+candidate mechanism eliminated the same decisive way as warmup and
+mmap/TLB.
+
+Also checked a specific claim from a later research pass -- that MLX
+internally enforces `MLX_MAX_OPS_PER_BUFFER = 50` /
+`MLX_MAX_MB_PER_BUFFER = 50` command-buffer-batching thresholds in
+`mlx/backend/metal/device.cpp`, with each encoder rollover costing
+"~17us" and explaining `BASE_OVERHEAD_SEC` as scaling with layer count.
+**These specific constant names do not appear anywhere in the installed
+MLX binary** (`strings` on `mlx/core.cpython-312-darwin.so` finds zero
+matches for either name, and `mx.metal`'s actual Python API exposes only
+cache/memory-limit controls, nothing about command-buffer batching) --
+this looks like the same kind of confidently-specific fabrication this
+project has caught multiple times before (see item 2's history), not a
+verified mechanism. The general idea (MLX batches multiple ops per
+Metal command buffer, and encoder transitions have some real cost) is
+plausible on its face, but the specific named constants and the "5.4ms
+of idle GPU pipeline latency per token" figure built on them are not
+independently confirmed and should not be treated as established.
+
+Remaining untested candidate mechanisms: (1) something GatedDeltaNet's
 custom Metal kernel (`gated_delta.py`'s `_gated_delta_kernel`) does
-differently with random vs. real gating/decay values -- would need
-Metal System Trace (`xctrace`) to actually confirm at the kernel-dispatch
-level, not just narrow by elimination like the two ruled-out hypotheses
-above.
+differently with random vs. real gating/decay values; (2) actual Metal
+command buffer/encoder counts via a real `xctrace` "Metal System Trace"
+capture, comparing the synthetic probe against a real downloaded
+checkpoint -- the only way to either confirm or debunk the command-
+buffer-rollover idea above with real evidence instead of narrowing by
+elimination like the three ruled-out hypotheses did.
 
 ## 5. LFM2-8B-A1B / granite-4.0-h-tiny's remaining active-bytes gap -- partially confirmed
 
