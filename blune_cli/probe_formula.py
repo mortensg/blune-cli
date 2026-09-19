@@ -101,39 +101,57 @@ range; includes the Qwen3-Next-family q_proj-doubling fix -- see
 _Q_PROJ_MULTIPLIER_BY_MODEL_TYPE in size_estimate.py -- and every
 bytes-per-token fix documented further down, most recently LFM2's
 `block_auto_adjust_ff_dim` real MLP width):
-    Qwen3-Coder-30B-A3B-Instruct-4bit:  real 90.5, formula 85.5 (-5.6%)
-    gemma-4-26b-a4b-it-4bit:            real 76.7, formula 81.6 (+6.3%)
-    Qwen2.5-Coder-7B-Instruct-4bit:     real 57.2, formula 56.0 (-2.0%)
-    Qwen3.6-35B-A3B-4bit:               real 89.1, formula 90.4 (+1.4%)
-    gpt-oss-20b-OptiQ-4bit:             real 83.6, formula 83.3 (-0.3%)
-    Huihui-LFM2.5-1.2B-Instruct-8bit:   real 176.6, formula 172.7 (-2.2%)
-    LFM2-8B-A1B-3bit-MLX:               real 192.1, formula 197.5 (+2.8%)
-    granite-4.0-h-tiny-6bit-MLX:        real 116.9, formula 114.6 (-2.0%)
-    NVIDIA-Nemotron-3-Nano-30B-A3B-8Bit: real 57.1, formula 58.0 (+1.6%)
-mean absolute error **2.7%, max 6.3%** (previously 5.9%/19.8%, 7.2%/
-20.1%, and 9.4%/21.1% at earlier stages of this investigation) -- every
-point in this set now sits within 6.3% of real, and the worst-fit point
-(gemma-4-26b-a4b-it-4bit) is here because of a REAL remaining effect
-(the same width-dependent MoE bandwidth-occupancy discount documented
-in formula-accuracy-gap.md item 5, not yet safely integratable into
-this global fit -- see item 5b's honest account of why), not an
-unexplained miss. This is the first time this project's own numbers
-have landed at or inside the 97%-accuracy question that motivated the
-whole "what's missing" investigation -- on this in-sample set, not yet
-independently confirmed on new held-out ground truth.
+    Qwen3-Coder-30B-A3B-Instruct-4bit:  real 90.5, formula 86.0 (-5.0%)
+    gemma-4-26b-a4b-it-4bit:            real 79.1, formula 81.9 (+3.6%)
+    Qwen2.5-Coder-7B-Instruct-4bit:     real 57.2, formula 56.2 (-1.8%)
+    Qwen3.6-35B-A3B-4bit:               real 89.1, formula 90.8 (+1.9%)
+    gpt-oss-20b-OptiQ-4bit:             real 83.6, formula 83.6 (+0.0%)
+    Huihui-LFM2.5-1.2B-Instruct-8bit:   real 176.6, formula 172.9 (-2.1%)
+    LFM2-8B-A1B-3bit-MLX:               real 192.1, formula 198.4 (+3.3%)
+    granite-4.0-h-tiny-6bit-MLX:        real 116.9, formula 115.2 (-1.4%)
+    NVIDIA-Nemotron-3-Nano-30B-A3B-8Bit: real 57.1, formula 58.2 (+2.0%)
+mean absolute error **2.35%, max 5.0%** (previously 2.7%/6.3%, 5.9%/
+19.8%, 7.2%/20.1%, and 9.4%/21.1% at earlier stages of this
+investigation) -- every point in this set now sits within 5.0% of real.
+The improvement from 6.3% max to 5.0% came from re-measuring
+`gemma-4-26b-a4b-it-4bit` itself: its originally recorded 76.7 tok/s
+(kept with no provenance beyond "thinking mode enabled") turned out to
+be stale or otherwise imprecise -- a fresh, rigorous 10-trial
+`mlx_lm.generate` mean gave 79.1 tok/s (std 0.60, 0.76% relative,
+tightly clustered). Most of what had looked like a real, unexplained
+MoE-width-bandwidth residual on this point (formula-accuracy-gap.md
+items 5/5b/8) was actually just an imprecise ground-truth measurement,
+not a formula problem -- a reminder that a "real remaining effect"
+explanation is only as solid as the measurement it's explaining, and is
+worth re-checking the same way a persistently-bad-fit point's SOURCE is
+(see the LFM2 lesson two fixes down). `Qwen3-Coder-30B-A3B-Instruct-4bit`
+is now the nominal worst point (-5.0%) -- its own source
+(`mlx_lm/models/qwen3_moe.py`) was read directly and found to match the
+generic formula's assumptions exactly (standard GQA, no shared expert,
+no unusual sizing), so its residual is most plausibly the same
+narrow-MoE-width bandwidth effect (its `moe_intermediate_size=768` is
+narrow) rather than an undiscovered structural bug -- but that
+explanation hasn't been re-verified against a fresh measurement of this
+specific point either, so treat it as a reasonable hypothesis, not a
+settled fact. Separately, a real, independently-measured Level-1 ground
+truth point (`Youssofal/Qwen3.6-35B-A3B-Abliterated-Heretic-MLX-4bit`,
+not in this calibration set) came in at +1.0% error -- see
+formula-accuracy-gap.md item 3b for the full story of how that held-out
+model's originally-reported +26-30% gap turned out to be entirely a
+`probe_mlx.py` proxy artifact, not a formula error.
 
 Honesty notes on the three fitted constants:
 - All three constants moved substantially from earlier fits as more
   real bytes-per-token bugs were found and fixed (see the fix list
   below) -- BASE_OVERHEAD_SEC in particular flipped from negative in
-  every earlier fit to a small positive ~0.31ms here, which is at least
+  every earlier fit to a small positive ~0.32ms here, which is at least
   directionally more physically plausible (a real, if small, positive
   fixed per-decode-step cost) than the earlier negative values ever
   were, though this project has never claimed these three constants are
   a clean physical decomposition rather than a jointly-fit
   approximation.
 - BANDWIDTH_CALIBRATION_RATIO (~0.83x spec) and MOE_LAYER_OVERHEAD_SEC
-  (~79us) are the two terms most likely to be "real" -- the MoE term is
+  (~78us) are the two terms most likely to be "real" -- the MoE term is
   the same order of magnitude as the direct micro-benchmark's ~178-200us
   marginal-cost finding (real decode-loop kernel fusion is plausibly
   more efficient than an isolated Python-level benchmark call).
@@ -141,7 +159,7 @@ Honesty notes on the three fitted constants:
   every earlier refit (-14.3% to -23.3% depending which other fixes
   were already in place) and long assumed to be a "small/fast model"
   problem, turned out to have a real, fixable 50% MLP-width overcount
-  the whole time (see the LFM2 fix below) -- now fits at -2.2%, no
+  the whole time (see the LFM2 fix below) -- now fits at -2.1%, no
   different from any other point. Genuinely fast dense-hybrid models
   (>300 tok/s -- Josiefied-Qwen3.5-0.8B, mamba-130m, both excluded from
   this calibration set) still show the small/fast-model problem this
@@ -238,8 +256,10 @@ verified, mechanistic bugs rather than a curve-fitting trick.
 
 A fourth fix (LFM2's `block_auto_adjust_ff_dim`, see
 size_estimate.py's `_lfm2_dense_mlp_width`) then dropped mean error
-further to **2.7%, max 6.3%** -- see the "Calibration data" section
-below and formula-accuracy-gap.md item 10 for the full story. This was
+further to 2.7%, max 6.3% -- and re-measuring a stale gemma-4-26b-a4b
+ground-truth value afterward (see the "Calibration data" section below)
+brought it to the current **2.35%, max 5.0%**. See formula-accuracy-
+gap.md item 10 for the full LFM2 story. The LFM2 fix was
 the single most impactful individual fix found in this whole
 investigation: `Huihui-LFM2.5-1.2B`, previously this calibration set's
 worst-or-near-worst point across every earlier refit (-14.3% to -23.3%
@@ -257,9 +277,9 @@ from typing import Optional
 
 from .size_estimate import count_moe_layers, estimate_active_bytes_per_token
 
-BANDWIDTH_CALIBRATION_RATIO = 0.8324  # see module docstring -- empirical, refit after 4 real bytes-per-token fixes
-BASE_OVERHEAD_SEC = 0.000314  # see module docstring -- fit value
-MOE_LAYER_OVERHEAD_SEC = 0.000079  # per-MoE-layer dispatch cost, confirmed by direct MLX micro-benchmark
+BANDWIDTH_CALIBRATION_RATIO = 0.8346  # see module docstring -- empirical, refit after correcting a stale gemma-4-26b measurement
+BASE_OVERHEAD_SEC = 0.000322  # see module docstring -- fit value
+MOE_LAYER_OVERHEAD_SEC = 0.000078  # per-MoE-layer dispatch cost, confirmed by direct MLX micro-benchmark
 
 
 def probe(
@@ -300,5 +320,5 @@ def probe(
         "bytes_per_token_active": round(bytes_per_token / 1e6, 1),
         "n_moe_layers": n_moe_layers,
         "estimated_real_tps": round(tps, 1),
-        "confidence": "medium-high (config-only formula, mean 2.7% error / 6.3% max on 9-point real-measurement set spanning dense, MoE, and 4 hybrid architectures; may be less accurate on very fast (>300 tok/s) small models -- see docs/formula-accuracy-gap.md item 7)",
+        "confidence": "high (config-only formula, mean 2.35% error / 5.0% max on 9-point real-measurement set spanning dense, MoE, and 4 hybrid architectures; may be less accurate on very fast (>300 tok/s) small models -- see docs/formula-accuracy-gap.md item 7)",
     }

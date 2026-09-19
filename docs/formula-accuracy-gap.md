@@ -572,3 +572,46 @@ hindsight, the "explanation" was pattern-matching on the wrong shared
 property (LFM2.5-1.2B's real decode speed, 176.6 tok/s, was never
 actually in the same regime as the two genuinely fast points, 339.7 and
 490.8 tok/s, that the pattern was drawn from).
+
+## 11. `gemma-4-26b-a4b-it-4bit`'s recorded ground truth was itself stale -- RESOLVED
+
+Same general lesson as item 10, applied to the MEASUREMENT side instead
+of the formula side. `gemma-4-26b-a4b-it-4bit` remained this
+calibration set's worst point (+3.6% to +6.7% depending which other
+fixes were in place) even after its real structural bug (item 8,
+parallel dense+MoE) was fixed. The residual was attributed to the same
+width-dependent MoE bandwidth-occupancy effect documented in items 5/5b
+(its `moe_intermediate_size=704` is narrow) -- a real, source-verified
+mechanism, so a plausible explanation on its face.
+
+Re-measuring it directly (a fresh 10-trial `mlx_lm.generate` run,
+prompted by wanting a second real data point to test that explanation)
+found the recorded ground truth itself was off: originally 76.7 tok/s
+(kept in `measurements.json` with no provenance beyond "thinking mode
+enabled" -- likely a single run, or from an earlier, less careful
+measurement pass in this project's history), vs. a rigorous, tightly-
+clustered new measurement of **79.1 tok/s** (std 0.60, 0.76% relative
+over 10 trials). Refitting with the corrected value dropped this
+point's own error from +6.3% to **+3.6%**, and the whole 9-point set's
+mean from 2.7%/6.3% to **2.35%/5.0%**.
+
+**The lesson, generalized from item 10:** re-suspecting a bad fit for a
+FORMULA bug (item 10) is only half of it -- the GROUND TRUTH the formula
+is being measured against needs the same scrutiny before being trusted
+as a fixed target. A single number sitting in `measurements.json` with
+thin provenance ("thinking mode enabled" and nothing else) is not
+automatically more trustworthy than a formula prediction; re-measuring
+it with this project's own established rigor (10+ trials, `std`/CV
+reported) is cheap and should be the default before accepting a
+persistent gap as evidence of a missing formula mechanism.
+
+`Qwen3-Coder-30B-A3B-Instruct-4bit` is now the nominal worst point
+(-5.0%) and has NOT yet been re-measured with this same scrutiny since
+early in this session (it was re-measured once already, for the noise-
+floor work in item 4, and that measurement -- 90.5 tok/s, std 0.66,
+0.73% relative -- was already rigorous) -- its residual is more likely a
+genuine narrow-MoE-width effect (`moe_intermediate_size=768`) than a
+stale ground truth, since its own measurement is already known-clean,
+but this has not been independently re-verified as thoroughly as
+`_gemma4_estimate()`'s or `_lfm2_dense_mlp_width()`'s source-level
+audits were.

@@ -12,8 +12,8 @@
       "repo_id": "mlx-community/gemma-4-26b-a4b-it-4bit",
       "library": "mlx",
       "machine": "m4_pro_48gb",
-      "real_decode_tps": 76.7,
-      "notes": "MoE, 4B active/26B total, thinking mode enabled"
+      "real_decode_tps": 79.08,
+      "notes": "MoE, 4B active/26B total. Original 76.7 value (kept no other provenance than 'thinking mode enabled') replaced with a rigorous 10-trial mean via mlx_lm.generate (std 0.60, 0.76% relative, tightly clustered 78.46-79.93), taken while re-investigating this project's own persistently-worst calibration point. The corrected value alone dropped this point's formula error from +6.3% (using the old, apparently stale/less-rigorous 76.7) to +3.2% -- suggesting most of what looked like a real unexplained residual (attributed to MoE-width bandwidth effects in formula-accuracy-gap.md item 5/8) was actually just an imprecise original measurement, not a formula problem."
     },
     {
       "repo_id": "mlx-community/Qwen2.5-Coder-7B-Instruct-4bit",
