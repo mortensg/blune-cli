@@ -151,15 +151,28 @@ fell from 9.4% to **7.2%** (max 21.1% -> 20.1%) -- a real, verified
 improvement on the calibration set itself, not just the one outlier
 that motivated the investigation.
 
-**Still open:** re-running this comparison after item 4's hybrid-aware
-probe fix (below) shows Youssofal's `probe_mlx.py` "ground truth"
-estimate itself moved from 66.6 to 88.2 tok/s (it's a GatedDeltaNet+MoE
-hybrid, so it was being miscalibrated by the same flat-ratio bug found
-in item 4) -- formula-vs-corrected-probe is now **-13.3%** (formula
-under-predicting, having flipped sign from the pre-item-4 +14.9%). The
-remaining gap is most plausibly this project's general 7.2%-mean formula
-error (item 6) plus the still-unhandled partial mixer-projection
-overrides noted above (~2-3 points, not implemented), not a new bug.
+**RESOLVED (real Level-1 measurement taken):** every prior number in
+this section was formula-vs-`probe_mlx.py`, never formula-vs-real. This
+project's own established methodology says the probe is a stand-in for
+ground truth, not ground truth itself, so the final step was always to
+actually download and measure the real repo -- done: 12-trial
+`mlx_lm.generate` mean, **78.71 tok/s, std 0.98% relative** (a genuinely
+clean, tightly-clustered measurement -- see measurements.json for a
+methodological note about a first attempt's cold-disk-cache instability,
+resolved by re-measuring once the file was warm). `probe_formula.py`
+predicts **79.5 tok/s -- +1.0% error.** The entire originally-reported
++26% to +30% gap that motivated this whole item was a `probe_mlx.py`
+proxy artifact from start to finish: the probe's own hybrid-calibrated
+estimate for this exact model is 86.9 tok/s, +10.4% over the now-known
+real value, and its raw (uncalibrated) deficit is 30.4% -- both
+consistent with the hybrid-architecture deficit already characterized
+in item 4. The mixed-quantization and metadata bytes-per-token fixes
+above were still real, verified, and worth having (they measurably
+improved the 9-point in-sample calibration set too, see item 6) -- they
+just weren't the reason this *specific* held-out comparison looked as
+bad as it did. This real measurement also fed back into refining
+`probe_mlx.py`'s own `HYBRID_CALIBRATION_RATIO` (0.63 -> 0.655, now fit
+from 3 real points instead of 2 -- see item 4).
 
 ## 6. Quantization metadata bytes (scale/bias) missing from every byte estimate -- RESOLVED
 
@@ -209,6 +222,17 @@ without touching the existing dense/MoE ratio or its own accuracy
 only 2 real points, below this project's own stated 5-per-family bar --
 treat as a real, directionally-confirmed improvement, not a precisely
 calibrated constant; more hybrid ground truth would firm this up.
+
+**Update, a 3rd real point:** downloading `Youssofal/Qwen3.6-35B-A3B-
+Abliterated-Heretic-MLX-4bit` for real Level-1 ground truth (see item
+3b's resolution) gave a 3rd hybrid data point: real 78.71 tok/s, raw
+probe 54.8 tok/s -- a 30% raw deficit, and the 2-point `0.63` ratio
+still landed at +10.4% error against it. Refit from all 3 points:
+averaging the 3 individual ratios (0.667, 0.602, 0.696) gives **0.655**,
+which fits all 3 points better (5.4% mean abs error) than the 2-point
+value or a pooled-sum alternative -- `HYBRID_CALIBRATION_RATIO` updated
+accordingly. Still below the 5-per-family bar, but a real improvement
+in the right direction with each new point.
 
 Also directly tested the **mmap/TLB-locality** hypothesis (a "deep
 research" pass's proposed mechanism: heap-fragmented random arrays vs.

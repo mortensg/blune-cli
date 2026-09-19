@@ -18,10 +18,9 @@ The ~81-85% ratio held consistently across three different architectures
 as a real, if provisional, correction factor, not a magic constant.
 
 GatedDeltaNet/SSM-hybrid architectures get a SEPARATE, lower ratio
-(HYBRID_CALIBRATION_RATIO). Two independent real downloads (not just
-one -- deliberately avoided fitting this from a single point) showed a
-much larger raw synthetic-vs-real deficit than the dense/MoE ratio
-above accounts for:
+(HYBRID_CALIBRATION_RATIO). Three independent real downloads (not just
+one or two) showed a much larger raw synthetic-vs-real deficit than the
+dense/MoE ratio above accounts for:
     Qwen3.6-35B-A3B-4bit (GatedDeltaNet+MoE hybrid, real mean 89.1
       tok/s over 10 trials, std 0.7%): raw probe 59.4 tok/s -- a 33%
       raw deficit (ratio 0.667), vs. this model still landing at -18%
@@ -30,29 +29,47 @@ above accounts for:
       no MoE; real mean 339.7 tok/s over 5 trials, std 0.7%): raw probe
       204.6 tok/s -- a 40% raw deficit (ratio 0.602), landing at -27%
       error using the flat 0.82 ratio.
-Both real-measurement noise floors were under 1% relative std (measured
-directly via 5-10 repeated `mlx_lm.generate` trials each), so this is a
-real architectural effect, not measurement noise. The mmap/TLB-locality
-hypothesis for the underlying deficit was tested directly (built a
-model with probe_mlx.py's own random+quantized weights, timed decode,
-then saved those exact values to safetensors and reloaded via mx.load
-to get identical values with mmap-backed, contiguous memory layout) and
-RULED OUT -- the mmap-reloaded version was 4.9% SLOWER, not faster, the
-wrong direction for that hypothesis to explain anything. The true
-mechanism is still unidentified (plausibly something GatedDeltaNet's
-custom Metal kernel, gated_delta.py's `_gated_delta_kernel`, does
-differently with random vs. real state-decay/gating values -- untested).
-HYBRID_CALIBRATION_RATIO is fit from only 2 real points (this project's
-own stated bar is 5+ per family for a stable fit) -- treat it as a real,
-directionally-confirmed improvement over applying the dense/MoE ratio
-to hybrid architectures, not a precisely-calibrated constant.
+    Youssofal/Qwen3.6-35B-A3B-Abliterated-Heretic-MLX-4bit
+      (GatedDeltaNet+MoE hybrid, mixed 4/6-bit quantization; real mean
+      78.71 tok/s over 12 trials, std 0.98%): raw probe 54.8 tok/s -- a
+      30% raw deficit (ratio 0.696). This is the same held-out model
+      that motivated the mixed-quantization and metadata bytes-per-token
+      fixes (formula-accuracy-gap.md item 3b) -- with real ground truth
+      now in hand, the formula itself lands at only +1.0% error against
+      it (79.5 predicted vs. 78.71 real), decisively confirming that the
+      whole originally-reported +26-30% gap was a probe-proxy artifact
+      the entire time, not a real formula error -- see item 3b/4 for the
+      full resolution.
+Averaging all 3 ratios (0.667, 0.602, 0.696) gives 0.655, which fits all
+3 real points better (5.4% mean abs error) than either a pooled-sum
+ratio (0.628, 7.0% mean error) or the earlier 2-point value (0.63, still
++10.4% off on the 3rd point). All 3 real-measurement noise floors were
+under 1% relative std (measured directly via 5-12 repeated
+`mlx_lm.generate` trials each), so this is a real architectural effect,
+not measurement noise. The mmap/TLB-locality hypothesis for the
+underlying deficit was tested directly (built a model with
+probe_mlx.py's own random+quantized weights, timed decode, then saved
+those exact values to safetensors and reloaded via mx.load to get
+identical values with mmap-backed, contiguous memory layout) and RULED
+OUT -- the mmap-reloaded version was 4.9% SLOWER, not faster, the wrong
+direction for that hypothesis to explain anything. Also ruled out:
+insufficient warmup, and subnormal-float dequantization stalls (see
+formula-accuracy-gap.md item 4 for both). The true mechanism is still
+unidentified (plausibly something GatedDeltaNet's custom Metal kernel,
+gated_delta.py's `_gated_delta_kernel`, does differently with random vs.
+real state-decay/gating values -- untested, would need a real Metal
+System Trace capture). HYBRID_CALIBRATION_RATIO is fit from 3 real
+points (this project's own stated bar is 5+ per family for a fully
+stable fit) -- treat it as a real, directionally-confirmed improvement
+over applying the dense/MoE ratio to hybrid architectures, not a
+precisely-calibrated constant.
 """
 from typing import Optional
 
 from .size_estimate import _analyze, _infer_bits
 
 CALIBRATION_RATIO = 0.82  # probe_tok_s / real_tok_s, dense/MoE architectures -- see module docstring
-HYBRID_CALIBRATION_RATIO = 0.63  # probe_tok_s / real_tok_s, GatedDeltaNet/SSM-hybrid architectures -- see module docstring, only 2 real points
+HYBRID_CALIBRATION_RATIO = 0.655  # probe_tok_s / real_tok_s, GatedDeltaNet/SSM-hybrid architectures -- see module docstring, 3 real points
 
 
 def probe(
