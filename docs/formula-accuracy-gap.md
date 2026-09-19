@@ -8,7 +8,7 @@ file only tracks what's still open.
 
 ---
 
-## 1. vLLM: two real, unrelated packages, only one (mis-)calibrated
+## 1. vLLM: two real, unrelated packages -- RESOLVED, both installed and measured
 
 `probe_vllm.py`'s `VLLM_SINGLE_STREAM_RATIO = 0.55` is based on exactly
 ONE real comparison (`gemma-4-26b-a4b-it-4bit`, MLX vs. vLLM), and
@@ -45,24 +45,61 @@ attempts (see item 2's history). The *architecture* (detect which
 package is installed, apply a different ratio per package) is sound
 and worth adopting regardless of the exact constants.
 
-**What to research/measure:**
-1. Install both `vllm-metal` and `vllm-mlx` (both real, actively
-   released pip packages) and run a real, controlled, single-stream
-   (concurrency=1) comparison against plain mlx-lm on the same small
-   model (e.g. one of the Qwen3-0.6B / Llama-3.2-1B models `vllm-mlx`'s
-   own docs already benchmark) on the same machine. This is the
-   highest-value single measurement in this whole list -- it directly
-   resolves whether one or two ratios are needed and gives real numbers
-   for whichever is chosen, rather than adopting the ~0.52/~0.92
-   estimates above untested.
-2. Independently re-run any concurrency=1-vs-N comparison rather than
-   trusting published numbers at face value -- `vllm-mlx`'s own docs
-   showed >50% different single-stream tok/s for the identical
-   model/chip in two different tables in the same file, so single-run
-   third-party benchmarks in this space are known to be noisy.
-3. Confirm whether `vllm-metal`'s GGUF support (currently narrow: only
-   Q8_0/Q4_0/Q4_1 + F16/F32/BF16, explicitly excluding K-quants/MoE/SSM
-   per its own docs) matters for any model blune's cache already covers.
+**RESOLVED -- both packages installed and directly measured.** Created
+an isolated venv (`.venv-vllm-test`, separate from this project's own
+working venv) and `pip install`ed both `vllm-metal` and `vllm-mlx` --
+both real PyPI packages, installed together with no dependency
+conflicts. Ran a real, controlled, single-stream (concurrency=1)
+comparison against native `mlx_lm.generate` on the same small model
+(`mlx-community/Qwen2.5-0.5B-Instruct-4bit`) on this project's own
+reference machine:
+
+    Native mlx_lm.generate: 429.38 tok/s (10-trial mean, std 1.18%)
+    vllm-metal (real HTTP server, 1 warmup + 8 timed requests, greedy):
+      293.69 tok/s (std 2.4%) -- ratio 0.684
+    vllm-mlx (`vllm-mlx bench --max-num-seqs 1`, after discovering and
+      controlling for its own large first-run warmup effect -- a
+      5-prompt run gave a misleadingly low 52.13 tok/s/ratio 0.121
+      before internal state warmed up; two separate 10-prompt runs
+      after that gave 300.17 and 319.67 tok/s):
+      mean 309.92 tok/s -- ratio 0.7215
+
+**This directly refutes the specific split a research pass proposed**
+(vllm-metal ~0.52-0.55, vllm-mlx ~0.90-0.95) -- on this one real small
+model, both packages give SIMILAR single-stream ratios, not
+dramatically different ones. What DOES look real: this project's
+original single vllm-metal point (`gemma-4-26b-a4b-it-4bit`, 26B, ratio
+0.554) is meaningfully lower than the new 0.5B point (0.684) for the
+SAME package, suggesting MODEL SIZE may be a bigger driver of the ratio
+than which package is used -- with only 2 points per backend (well
+below this project's own 5-per-family bar), model size and package
+choice aren't yet cleanly separable.
+
+Implemented `detect_vllm_backend()` in `probe_vllm.py` (checks which
+package, if either, is actually importable) with separate
+`VLLM_METAL_SINGLE_STREAM_RATIO` (0.619, mean of the 2 real points) and
+`VLLM_MLX_SINGLE_STREAM_RATIO` (0.7215, mean of the 2 real vllm-mlx
+runs) -- falling back to the more conservative (lower) ratio when
+neither package is installed, since most `blune-cli` users are deciding
+whether to install vLLM at all, not calling this with it already
+present.
+
+Also confirmed the warmup effect independently for vllm-mlx's own
+benchmark tool -- a DIFFERENT warmup mechanism from `probe_mlx.py`'s
+(which was already tested and ruled out as a cause for ITS OWN
+deficit, see item 4): here it's the serving harness's own first-run
+state (prefix cache, scheduler initialization, or similar) rather than
+MLX/Metal JIT compilation, but the practical lesson is the same --
+single-shot benchmarks of a fresh process can be badly misleading, and
+this project's own `vllm-mlx` numbers above were re-measured after
+discovering this rather than reported from the first (misleading) run.
+
+Not yet done: `vllm-metal`'s GGUF support (currently narrow per its own
+docs -- Q8_0/Q4_0/Q4_1 + F16/F32/BF16 only, explicitly excluding
+K-quants/MoE/SSM) was not cross-checked against blune's cached models;
+independently re-running a concurrency=1-vs-N comparison (this
+project's own vLLM concurrency data is still the single old
+`gemma-4-26b` point) also remains open.
 
 ## 2. `bailing_moe_linear`'s real layer structure -- RESOLVED
 
